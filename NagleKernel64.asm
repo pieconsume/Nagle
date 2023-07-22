@@ -2,7 +2,6 @@
  [BITS 64]
  [ORG 0]
  [DEFAULT REL]
- %include "Globals.asm"
  %define stack  $$+0x1000
  %define ipmm   $$+0x1000
  %define pml3   $$+0x2000
@@ -13,6 +12,9 @@
  %define pmm    $$+0x400000
 
 init:
+ mov byte [abs 0xB8000], 'a'
+ cli
+ hlt
  mov [rsrvptr], rax
  mov ebx, [rax+0x08]
  shl rbx, 12
@@ -96,7 +98,7 @@ genpmt:
   lea rax, [kernpm]
   lea rbx, $$
   or rbx, 3
-  mov ecx, pkernsz
+  mov ecx, 0
   genkpmloop:
    mov [rax], rbx
    add rax, 8
