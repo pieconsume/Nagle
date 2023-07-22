@@ -1,4 +1,7 @@
 nasm Bootloader.asm -f bin -o Builds/Bootloader
 nasm GPT.asm -f bin -o Builds/GPT
 nasm GPTPA.asm -f bin -o Builds/GPTPA
+nasm LegacyBoot.asm -f bin -o Builds/LegacyBoot
+nasm UEFIBoot.asm -f bin -o Builds/UEFIBoot
+nasm NagleKernel64.asm -f bin -o Builds/NagleKernel64
 nasm Filesystem.asm -f bin -o Builds/Filesystem
