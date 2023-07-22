@@ -1,0 +1,4 @@
+nasm Bootloader.asm -f bin -o Builds/Bootloader
+nasm GPT.asm -f bin -o Builds/GPT
+nasm GPTPA.asm -f bin -o Builds/GPTPA
+nasm Filesystem.asm -f bin -o Builds/Filesystem
