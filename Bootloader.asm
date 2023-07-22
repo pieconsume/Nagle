@@ -3,6 +3,12 @@
  [BITS 16]
  [ORG 0x7C00]
 load:
+ mov ah,0x0E
+ mov al,'w'
+ xor bh,bh
+ int 0x10
+ cli
+ hlt
  mov si,packet ; Send packet
  mov ah,0x42   ; Disk read
  int 0x13
