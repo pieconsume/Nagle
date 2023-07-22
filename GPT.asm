@@ -1,4 +1,5 @@
 ; GPT header
+ ; Use https://simplycalc.com/crc32-file.php to calculate CRCs. Do GPTPA then GPT with CRC zeroed
  dq 0x5452415020494645 ; Signature
  dd 0x10000            ; Version 1.0 (UEFI 2.9 and below)
  dd 0x0000005C         ; Header size, 92
