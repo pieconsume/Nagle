@@ -31,4 +31,3 @@ Todo list
 - Audio Core ❌
 - Video Core ❌
 - Video Drivers (Intel Integrated ❌, AMD ❌, NVIDIA 💀)
-- Common file type support (List too long) ❌
