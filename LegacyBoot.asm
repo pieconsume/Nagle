@@ -1,39 +1,38 @@
-; Defs
+;Defs
  [ORG 0x1000]
  [BITS 16]
- %include "Globals.asm"
  %define memmap 0x2000
  %define pml4   0x3000
  %define pml3   0x4000
 
 reginit:
- cli
- xor ax, ax
+ cli            ;Ensure nothing interferes during initialization
+ xor ax, ax     ;Ensure ds and es are initialized to 0
  mov ds, ax
  mov es, ax
  not ax
- mov fs, ax
+ mov fs, ax     ;Set fs to 0xFFFF for A20 testing
  mov ax, 0xB800
- mov gs, ax
- mov [disk], dl
+ mov gs, ax     ;Set gs to video memory
+ mov [disk], dl ;Save the drive passed over from the bootsector
 a20ch:
- cmp byte [fs:a20+0x10], 0xAB
- jne settarg
- mov ax, 0x2401 ; A20 enable
+ cmp byte [fs:a20+0x10], 0xAB ;Compare variable with value 1 MiB higher
+ jne settarg                  ;If they are different a20 is disabled and nothing needs to be done
+ mov ax, 0x2401               ;Try enabling a20 via BIOS
  int 0x15
- inc byte [a20]
- cmp byte [fs:a20+0x10], 0xAB
- je noa20
+ inc byte [a20]               ;Change the value on the off chance it happened to be the same
+ cmp byte [fs:a20+0x10], 0xAB ;Check if it is different now
+ je noa20                     ;If a20 isn't enabled just give up. Only bother fixing issues with this if/when they occur since legacy loading is mostly irrelevant
 settarg:
  mov ax, 0xEC00
- mov bl, 0x02
+ mov bl, 0x02   ;Set the target to 64 bit
  int 0x15
 setvid:
  xor ah, ah
- mov al, 0x03
+ mov al, 0x03 ;Set the video mode to 80x25 text (what it's usually set to)
  int 0x10
 getmap:
- mov edi, memmap
+ mov edi, memmap     ;Basic map getting code. Not sure how reliable it is but it works on my machine
  mov edx, 0x534D4150
  xor ebx, ebx
  xor si, si
@@ -45,46 +44,38 @@ getmap:
   inc si
   cmp ebx, 0
   jne maploop
-  mapend mov [rsrv+0x06], si
+  mapend mov [rsrv+0x06], si ;Save the entry count
 loadkernel:
  mov si, diskpack
  mov ah, 0x42
  mov dl, [disk]
  int 0x13
 pagemap:
- mov word [pml4], 0x4003 ; Memory map first GiB
+ mov word [pml4], 0x4003 ;Memory map first GiB
  mov word [pml3], 0x83
-irqmask:
- mov al, 0xFF
+longmode:            ;Uses the direct real to long mode method 
+ mov al, 0xFF        ;Disable all IRQs
  out 0x21, al
  out 0xA1, al
-loadidt:
- lidt [idtr]
-setpaepge:
- mov eax, 0b10100000 ; Enable PAE and PGE (Bits 7 and 5)
+ lidt [idtr]         ; Load IDT
+ mov eax, 0b10100000 ;Enable PAE and PGE (Bits 7 and 5)
  mov cr4, eax
-setpml4:
- mov eax, pml4
+ mov eax, pml4       ;Set PML4
  mov cr3, eax
-setlme:
- mov ecx, 0xC0000080
+ mov ecx, 0xC0000080 ;Set long mode enable
  rdmsr
  or eax, 0x100 
  wrmsr
-setprotpage:
- mov eax, cr0
+ mov eax, cr0        ;Enter long mode by enable paging and protected mode at the same time
  or eax, 1 | (1 << 31)
  mov cr0, eax
-loadgdt:
- lgdt [gdtr]
-setlong:
- jmp 0x08:kerninit
-kerninit:
+ lgdt [gdtr]         ;Load GDT
+ jmp 0x08:kerninit   ;Enter long mode by performing a far jump
  [BITS 64]
- mov ax, 0x10
+ mov ax, 0x10        ;Set data segment
  mov ds, ax
- mov eax, rsrv
- jmp 0x40000
+ mov eax, rsrv       ;Pass flags to kernel
+ jmp 0x40000         ;Jump to the kernel
  
 [BITS 16]
 noa20:
@@ -95,13 +86,13 @@ data:
  disk db 0
  a20  db 0xAB
  diskpack:
-  db 0x10     ; Packet size
-  db 0        ; 0
-  dw dkernsz  ; Sector count
-  dw 0        ; Write location
-  dw mkernseg ; Segment
-  dd dkernloc ; Sector skip low dword
-  dd 0        ; Sector skip high dword
+  db 0x10   ;Packet size
+  db 0      ;0
+  dw 2      ;Sector count
+  dw 0      ;Segment offset
+  dw 0x4000 ;Segment (address >> 4)
+  dd 0x1A   ;Sector skip low dword
+  dd 0      ;Sector skip high dword
  gdtr:
   dw 23
   dq gdt
@@ -109,22 +100,25 @@ data:
   dw 0
   dq 0
  gdt:
-  dq 0
-  dd 0
+  dq 0          ;Empty entry
+  dd 0          ;Code entry
   db 0
-  db 0b10011000
-  dw 0b00100000
-  dd 0
+  db 0b10011000 ;Access byte
+  db 0b00100000 ;Flags
   db 0
-  db 0b10010000
-  dw 0
+  dd 0          ;Data entry
+  db 0
+  db 0b10010000 ;Access byte
+  db 0
+  db 0
  rsrv:
-  dd 3    ; Reserved area count
-  dw 0    ; Flags
-  dw 0    ; Memory map entries
-  dd 0x40 ; 0x08 Kernel
-  dd pkernsz
-  dd 0x03 ; 0x10 PML4
+  dd 3    ;Reserved area count
+  dw 0    ;Flags
+  dw 0    ;Memory map entries
+  ;dword 0 is page offset, dword 1 is size in sectors
+  dd 0x40 ;0x08 Kernel
+  dd 2
+  dd 0x03 ;0x10 PML4
   dd 1
-  dd 0x02 ; 0x18 2 Physical memory map
+  dd 0x02 ;0x18 2 Physical memory map
   dd 1
