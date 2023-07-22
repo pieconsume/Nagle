@@ -1,4 +1,4 @@
-#Nagle
+# Nagle
 
 Current status
  - Restructuring the project for github. Right now nothing is put together and it's just a mess of disjointed code.
@@ -20,15 +20,15 @@ Todo list
 - Multicore Threading ❌
 - PCI support ✅
 - PCIe support 🔄
-Timer Drivers (PIT ✅, APIC Timer ❌, HEPT ❌, RTC ❌)
-USB Core ❌
-USB Drivers (Keyboard ❌, Mouse ❌, Speaker ❌, Microphone ❌, HDD ❌)
-Networking Core ❌
-Networking drivers (Ethernet ❌, Wifi ❌)
-File System Core 🔄
-File System Support (FAT 🔄, Ext2 ❌, NTFS ❌)
-Disk Access Drivers (ATA 🔄, ATAPI 🔄, SATA/AHCI 🔄, DMA ❌, NVMe ❌, Legacy floppy support ❌)
-Audio Core ❌
-Video Core ❌
-Video Drivers (Intel Integrated ❌, AMD ❌, NVIDIA 💀)
-Common file type support (List too long) ❌
+- Timer Drivers (PIT ✅, APIC Timer ❌, HEPT ❌, RTC ❌)
+- USB Core ❌
+- USB Drivers (Keyboard ❌, Mouse ❌, Speaker ❌, Microphone ❌, HDD ❌)
+- Networking Core ❌
+- Networking drivers (Ethernet ❌, Wifi ❌)
+- File System Core 🔄
+- File System Support (FAT 🔄, Ext2 ❌, NTFS ❌)
+- Disk Access Drivers (ATA 🔄, ATAPI 🔄, SATA/AHCI 🔄, DMA ❌, NVMe ❌, Legacy floppy support ❌)
+- Audio Core ❌
+- Video Core ❌
+- Video Drivers (Intel Integrated ❌, AMD ❌, NVIDIA 💀)
+- Common file type support (List too long) ❌
