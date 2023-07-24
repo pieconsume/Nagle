@@ -31,6 +31,21 @@ setvid:
  xor ah, ah
  mov al, 0x03 ;Set the video mode to 80x25 text (what it's usually set to)
  int 0x10
+remappic:
+ mov al, 0x11 ;0x11 is the PIC initialization command which accepts 3 inputs after being run
+ out 0x20, al ;There's no need to save/restore masks since I wont be using the PIC and they are all masked later in the code
+ out 0xA0, al
+ mov al, 0x20 ;Offsets. 0x20-0x2F or 32 to 47
+ out 0x21, al
+ mov al, 0x28
+ out 0xA1, al
+ mov al, 4    ;Tells the two PICs how they are wired together. I dont fully understand this but I dont really need to
+ out 0x21, al
+ mov al, 2
+ out 0xA1, al
+ mov al, 1    ;Set the mode, 1 is 8086 mode. Again not very important since I wont be using the PIC.
+ out 0x21, al 
+ out 0xA1, al 
 getmap:
  mov edi, memmap     ;Basic map getting code. Not sure how reliable it is but it works on my machine
  mov edx, 0x534D4150
@@ -51,13 +66,14 @@ loadkernel:
  mov dl, [disk]
  int 0x13
 pagemap:
- mov word [pml4], 0x4003 ;Memory map first GiB
+ mov word [pml4], 0x4003 ;Identity map first GiB
  mov word [pml3], 0x83
-longmode:            ;Uses the direct real to long mode method 
+longmode:
+ ;Uses the direct real to long mode method 
  mov al, 0xFF        ;Disable all IRQs
  out 0x21, al
  out 0xA1, al
- lidt [idtr]         ; Load IDT
+ lidt [idtr]         ;Load IDT
  mov eax, 0b10100000 ;Enable PAE and PGE (Bits 7 and 5)
  mov cr4, eax
  mov eax, pml4       ;Set PML4
@@ -72,6 +88,7 @@ longmode:            ;Uses the direct real to long mode method
  lgdt [gdtr]         ;Load GDT
  jmp 0x08:kerninit   ;Enter long mode by performing a far jump
  [BITS 64]
+ kerninit:
  mov ax, 0x10        ;Set data segment
  mov ds, ax
  mov eax, rsrv       ;Pass flags to kernel
@@ -112,9 +129,10 @@ data:
   db 0
   db 0
  rsrv:
-  dd 3    ;Reserved area count
-  dw 0    ;Flags
-  dw 0    ;Memory map entries
+  dd 3    ;0x00 Reserved area count
+  db 0    ;0x04 Flags
+  db 0    ;0x05 Memory map type
+  dw 0    ;0x06 Memory map entries
   ;dword 0 is page offset, dword 1 is size in sectors
   dd 0x40 ;0x08 Kernel
   dd 2
