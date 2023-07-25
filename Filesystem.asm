@@ -108,7 +108,11 @@ fat:      ;0x13-0x14
  dd 0x00000008 ;0x07, Kernel file
  dd 0x00000009 ;0x08, Kernel file
  dd 0x0000000A ;0x09, Kernel file
- dd 0x0FFFFFFF ;0x0A, Kernel file
+ dd 0x0000000B ;0x0A, Kernel file
+ dd 0x0000000C ;0x0B, Kernel file
+ dd 0x0000000D ;0x0C, Kernel file
+ dd 0x0000000E ;0x0D, Kernel file
+ dd 0x0FFFFFFF ;0x0E, Kernel file
  fat.end:
  times (0x200-(fat.end-fat))/4 dd 0x0FFFFFF7 ;0x0FFFFFF7 is bad / unusuable cluster 
  fatb:
@@ -117,6 +121,15 @@ fat:      ;0x13-0x14
  dd 0x0FFFFFFF ;0x02, Root directory
  dd 0x0FFFFFFF ;0x03, EFI directory
  dd 0x0FFFFFFF ;0x04, Boot directory
+ dd 0x0FFFFFFF ;0x06, EFIBoot file
+ dd 0x00000008 ;0x07, Kernel file
+ dd 0x00000009 ;0x08, Kernel file
+ dd 0x0000000A ;0x09, Kernel file
+ dd 0x0000000B ;0x0A, Kernel file
+ dd 0x0000000C ;0x0B, Kernel file
+ dd 0x0000000D ;0x0C, Kernel file
+ dd 0x0000000E ;0x0D, Kernel file
+ dd 0x0FFFFFFF ;0x0E, Kernel file
  fatb.end:
  times (0x200-(fatb.end-fatb))/4 dd 0x0FFFFFF7
 folders:  ;0x15-0x17
@@ -271,4 +284,4 @@ files:
  kernel:  ;0x1A-0x1D | 0x07-0x0A
   kernel.end:
   incbin "Builds/NagleKernel64"
-  times 0x800-(kernel.end-kernel) db 0
+  times 0x1000-(kernel.end-kernel) db 0
