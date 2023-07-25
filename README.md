@@ -20,7 +20,7 @@ Todo list
 - Multicore Threading ❌
 - PCI support ✅
 - PCIe support 🔄
-- Timer Drivers (PIT ✅, APIC Timer ❌, HEPT ❌, RTC ❌)
+- Timer Drivers (PIT ✅,  RTC ✅, APIC Timer ❌, HPET ❌)
 - USB Core ❌
 - USB Drivers (Keyboard ❌, Mouse ❌, Speaker ❌, Microphone ❌, HDD ❌)
 - Networking Core ❌
