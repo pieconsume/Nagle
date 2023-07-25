@@ -86,10 +86,11 @@ genpmt:
   mov [rcx+0x000], rax                ;Map pml3im for identity mapping
   mov [rcx+0xFF8], rbx                ;Map pml3hh for higher half kernel
  genpml3:
-  mov qword [pml3im+0x00], 0x00000083 ;Identity map the first 4 GiB
-  mov qword [pml3im+0x08], 0x40000083
-  mov qword [pml3im+0x10], 0x80000083 ;Nasm will give warnings about number overflow but code functions fine
-  mov qword [pml3im+0x18], 0xC0000083
+  ;The upper 32 bits of each entry may contain spurious values, make sure to explicitly zero those out later
+  mov dword [pml3im+0x00], 0x00000083 ;Identity map the first 4 GiB
+  mov dword [pml3im+0x08], 0x40000083
+  mov dword [pml3im+0x10], 0x80000083
+  mov dword [pml3im+0x18], 0xC0000083
   lea rax, [pml2]
   or rax, 0x03
   mov [pml3hh+0xFF8], rax             ;Map pml2 for highest quarter kernel
@@ -104,7 +105,7 @@ genpmt:
   lea rax, [kernpm]
   lea rbx, $$
   or rbx, 3
-  mov ecx, 0x08
+  mov ecx, 0x10
   genkpmloop:
    mov [rax], rbx
    add rax, 8
@@ -157,11 +158,21 @@ getmadt:
  hlt
  madtfound:
  mov [madt], ebx
-mainloop:
+intconf:
  lidt [idtr]
- mov byte [abs 0xB8000], 'a'
- int 0
+ ;Currently assuming that the addresses are initialized to their standard locations. Get the values from the MADT later
+ mov ecx, 0xFEE000F0
+ mov edx, 0xFEC00000
+ mov eax, [ecx]             ;Get the mask
+ mov eax, 0x1FF             ;Set the enable bit
+ mov [ecx+0xF0], eax        ;Save values
+ mov dword [edx], 0x12      ;Register to read/write to
+ mov dword [edx+0x10], 0x21 ;???
+ call printeax
+mainloop:
+ sti
  hlt
+ jmp mainloop
 
 palloc:
  ; rdi, pointer to ipmm
@@ -185,8 +196,12 @@ pmap:
 punmap:
 pfree:
 
-int0:
- mov byte [abs 0xB8000], 'i'
+int21:
+ in al, 0x60           ;Read keyboard input
+ mov [lastkey], al     ;Save
+ mov byte [handled], 0 ;Clear handled flag
+ mov eax, 0xFEE000B0   ;Send EOI
+ mov dword [eax], 0
  iretq
 
 printeax:
@@ -224,19 +239,22 @@ data:
  madt    dq 0
  prntbuf dd 0xB8000
  str.hex db '0123456789ABCDEF'
+ lastkey db 0
+ handled db 1
  align 0x10, db 0
  idtr:
   dw idt.end-idt-1
   dq 0xFFFFFFFFC0000000+idt ;Hardcoded value for now. Set during init for portability later
  idt:
-  dw int0       ;Offset 0-15
-  dw 0x08       ;Segment selector
-  db 0          ;IST/reserved
-  db 0x8E       ;Gatetype(0-3), 0(4), DPL(5-6), present(7)
-  dw 0xC000     ;Offset 16-31
-  dd 0xFFFFFFFF ;Offset 32-63 ;Hardcoded value for now. Set during init for portability later
-  dq 0          ;Reserved
+  times 0x21*0x10 db 0 ;Reserved entries
+  dw int21             ;Offset 0-15 ;0x21 is keyboard
+  dw 0x08              ;Segment selector
+  db 0                 ;IST/reserved
+  db 0x8E              ;Gatetype(0-3), 0(4), DPL(5-6), present(7)
+  dw 0xC000            ;Offset 16-31
+  dd 0xFFFFFFFF        ;Offset 32-63 ;Hardcoded value for now. Set during init for portability later
+  dd 0                 ;Reserved
   idt.end:
-%if $-$$ > 0x0F00
+%if $-$$ > 0x0800
  %error "Exceeded current allocation"
  %endif
