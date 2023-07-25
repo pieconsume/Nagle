@@ -1,3 +1,5 @@
+; I haven't worked on this code in so long I have no idea how anything was designed
+
 ; Defs
  [BITS 64]
  [ORG 0]
@@ -6,16 +8,15 @@
  %define ipmm   $$+0x1000
  %define pml3   $$+0x2000
  %define pml2   $$+0x3000
- %define kernpm $$+0x4000
+ %define kernpm $$+0x4000  ;pm suffix is for pml1 structs
  %define sdtpm  $$+0x5000
- %define sdt    $$+0x200000
- %define pmm    $$+0x400000
+ %define vidpm  $$+0x6000 
+ %define kern   $$+0x000000 ; Kernel
+ %define sdt    $$+0x200000 ; Standard data table
+ %define pmm    $$+0x400000 ; Not currently mapped
 
 init:
- mov byte [abs 0xB8000], 'a'
- cli
- hlt
- mov [rsrvptr], rax
+ mov [rsrvptr], rax 
  mov ebx, [rax+0x08]
  shl rbx, 12
  mov [kernphy], rbx
@@ -26,15 +27,13 @@ init:
  shl rbx, 12
  mov [pmmphy], rbx
  lea rsp, [stack]
- test byte [rax+4], 1
+ test byte [rax+0x05], 1
  jnz genpat1
 genpat0:
  ; Todo - test this code on sample sets
- mov edi, [rax+0x18]
- shl rdi, 12
+ mov rdi, [pmmphy]
  xor ecx, ecx
- mov cx, [rdi]
- add rdi, 4
+ mov cx, [rax+0x06]
  lea rsi, [ipmm+0x08]
  genpatloop:
   genpatloc:
@@ -94,11 +93,14 @@ genpmt:
   lea rax, [sdtpm]
   or rax, 0x03
   mov [pml2+0x008], rax
+  lea rax, [vidpm]
+  or rax, 0x03
+  mov [pml2+0x018], rax
  genkpm:
   lea rax, [kernpm]
   lea rbx, $$
   or rbx, 3
-  mov ecx, 0
+  mov ecx, 0x08
   genkpmloop:
    mov [rax], rbx
    add rax, 8
@@ -109,17 +111,52 @@ genpmt:
   or rax, 0x03
   mov [sdtpm], rax
  jmphh:
-  mov rax, 0xFFFFFFFFC0000000+clrpml4
+  mov rax, 0xFFFFFFFFC0000000+endjmp
   jmp rax
- clrpml4:
-  lea rax, [sdt]
-  mov ecx, 511
-  clrpml4loop:
-   mov qword [rax], 0
-   add rax, 8
-   loop clrpml4loop
-lpic:
-hlt
+  endjmp:
+getrsdt:
+ mov eax, 0x80000 ;Search the first KiB of the EBDA
+ mov rbx, 'RSD PTR '
+ mov ecx, 0x2000
+ rsdploop0:
+ cmp [eax], rbx
+ add eax, 0x10
+ je rsdpfound
+ loop rsdploop0
+ mov eax, 0x0E0000 ;Search 0x0E0000-0x100000
+ mov ecx, 0x2000
+ rsdploop1:
+ cmp [eax], rbx
+ je rsdpfound
+ add eax, 16
+ loop rsdploop1
+ norsdp:
+ mov byte [abs 0xB8000], 'r' ;Advanced errorcode printing
+ hlt
+ rsdpfound:
+ mov eax, [eax+0x10] ;Todo - add checksum verification, check xsdt presence (test PC doesnt have one so I havent bothered to yet)
+ mov [rsdt], eax
+getmadt:
+ ;Todo - check for xsdt presence and try parsing that first
+ mov eax, [rsdt]
+ add eax, 0x24    ;Skip past headers
+ mov ecx, [rax+4] ;Get length
+ sub ecx, 0x24    ;Subtract headers from length
+ shr ecx, 2       ;Divide to get amount of dword entries
+ madtloop:
+ mov ebx, [eax]
+ cmp dword [ebx], 'APIC'
+ je madtfound
+ add eax, 4
+ loop madtloop
+ mov byte [abs 0xB8000], 'm'
+ hlt
+ madtfound:
+ mov [madt], ebx
+mainloop:
+ mov byte [abs 0xB8000], 'a'
+ mov byte [abs 0xB8000+1], 0x0F
+ hlt
 
 palloc:
  ; rdi, pointer to ipmm
@@ -172,6 +209,9 @@ data:
  kernphy dq 0
  pmmphy  dq 0
  pml4phy dq 0
+ rsdt    dq 0
+ xsdt    dq 0
+ madt    dq 0
  prntbuf dd 0xB8000
  str.hex db '0123456789ABCDEF'
 
