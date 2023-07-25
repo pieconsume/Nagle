@@ -6,11 +6,11 @@
  [DEFAULT REL]
  %define stack  $$+0x1000
  %define ipmm   $$+0x1000
- %define pml3   $$+0x2000
- %define pml2   $$+0x3000
- %define kernpm $$+0x4000  ;pm suffix is for pml1 structs
- %define sdtpm  $$+0x5000
- %define vidpm  $$+0x6000 
+ %define pml3im $$+0x2000   ;PML3 for identity mapping
+ %define pml3hh $$+0x3000   ;PML3 for higher half kernel
+ %define pml2   $$+0x4000
+ %define kernpm $$+0x5000   ;The pm suffix is for PML1 structs
+ %define sdtpm  $$+0x6000
  %define kern   $$+0x000000 ; Kernel
  %define sdt    $$+0x200000 ; Standard data table
  %define pmm    $$+0x400000 ; Not currently mapped
@@ -78,24 +78,28 @@ genpat0:
 genpat1:
 genpmt:
  genpml4:
-  lea rax, [pml3]
+  lea rax, [pml3im]
+  lea rbx, [pml3hh]
   or rax, 0x03
-  mov rbx, [pml4phy]
-  mov [rbx+0xFF8], rax
+  or rbx, 0x03
+  mov rcx, [pml4phy]                  ;Reuse the same pml4 passed by the bootloader
+  mov [rcx+0x000], rax                ;Map pml3im for identity mapping
+  mov [rcx+0xFF8], rbx                ;Map pml3hh for higher half kernel
  genpml3:
+  mov qword [pml3im+0x00], 0x00000083 ;Identity map the first 4 GiB
+  mov qword [pml3im+0x08], 0x40000083
+  mov qword [pml3im+0x10], 0x80000083 ;Nasm will give warnings about number overflow but code functions fine
+  mov qword [pml3im+0x18], 0xC0000083
   lea rax, [pml2]
   or rax, 0x03
-  mov [pml3+0xFF8], rax
+  mov [pml3hh+0xFF8], rax             ;Map pml2 for highest quarter kernel
  genpml2:
   lea rax, [kernpm]
   or rax, 0x03
-  mov [pml2+0x000], rax
+  mov [pml2+0x00], rax
   lea rax, [sdtpm]
   or rax, 0x03
-  mov [pml2+0x008], rax
-  lea rax, [vidpm]
-  or rax, 0x03
-  mov [pml2+0x018], rax
+  mov [pml2+0x08], rax
  genkpm:
   lea rax, [kernpm]
   lea rbx, $$
@@ -154,8 +158,9 @@ getmadt:
  madtfound:
  mov [madt], ebx
 mainloop:
+ lidt [idtr]
  mov byte [abs 0xB8000], 'a'
- mov byte [abs 0xB8000+1], 0x0F
+ int 0
  hlt
 
 palloc:
@@ -179,6 +184,10 @@ palloc:
 pmap:
 punmap:
 pfree:
+
+int0:
+ mov byte [abs 0xB8000], 'i'
+ iretq
 
 printeax:
  push rax
@@ -205,6 +214,7 @@ printeax:
  ret
 
 data:
+ align 0x10, db 0
  rsrvptr dq 0
  kernphy dq 0
  pmmphy  dq 0
@@ -214,7 +224,19 @@ data:
  madt    dq 0
  prntbuf dd 0xB8000
  str.hex db '0123456789ABCDEF'
-
+ align 0x10, db 0
+ idtr:
+  dw idt.end-idt-1
+  dq 0xFFFFFFFFC0000000+idt ;Hardcoded value for now. Set during init for portability later
+ idt:
+  dw int0       ;Offset 0-15
+  dw 0x08       ;Segment selector
+  db 0          ;IST/reserved
+  db 0x8E       ;Gatetype(0-3), 0(4), DPL(5-6), present(7)
+  dw 0xC000     ;Offset 16-31
+  dd 0xFFFFFFFF ;Offset 32-63 ;Hardcoded value for now. Set during init for portability later
+  dq 0          ;Reserved
+  idt.end:
 %if $-$$ > 0x0F00
  %error "Exceeded current allocation"
  %endif
