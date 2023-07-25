@@ -103,6 +103,12 @@ fat:      ;0x13-0x14
  dd 0x0FFFFFFF ;0x02, Root directory
  dd 0x0FFFFFFF ;0x03, EFI directory
  dd 0x0FFFFFFF ;0x04, Boot directory
+ dd 0x0FFFFFFF ;0x05, LBoot file
+ dd 0x0FFFFFFF ;0x06, EFIBoot file
+ dd 0x00000008 ;0x07, Kernel file
+ dd 0x00000009 ;0x08, Kernel file
+ dd 0x0000000A ;0x09, Kernel file
+ dd 0x0FFFFFFF ;0x0A, Kernel file
  fat.end:
  times (0x200-(fat.end-fat))/4 dd 0x0FFFFFF7 ;0x0FFFFFF7 is bad / unusuable cluster 
  fatb:
@@ -258,11 +264,11 @@ files:
   incbin "Builds/LegacyBoot"
   lboot.end:
   times 0x200-(lboot.end-lboot) db 0
- efiboot: ;0x19-0x19
+ efiboot: ;0x19-0x19 | 0x06-0x06
   incbin "Builds/UEFIBoot"
   efiboot.end:
   times 0x200-(efiboot.end-efiboot) db 0
- kernel:  ;0x1A-0x1B
+ kernel:  ;0x1A-0x1D | 0x07-0x0A
   kernel.end:
   incbin "Builds/NagleKernel64"
-  times 0x400-(kernel.end-kernel) db 0
+  times 0x800-(kernel.end-kernel) db 0

@@ -105,7 +105,7 @@ data:
  diskpack:
   db 0x10   ;Packet size
   db 0      ;0
-  dw 2      ;Sector count
+  dw 8      ;Sector count
   dw 0      ;Segment offset
   dw 0x4000 ;Segment (address >> 4)
   dd 0x1A   ;Sector skip low dword
