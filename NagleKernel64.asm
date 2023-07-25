@@ -193,34 +193,24 @@ scrconf:
  mov byte [abs 0xB8000+160*0x0F+02], 'e'
  mov byte [abs 0xB8000+160*0x10+02], 'r'
  mov byte [abs 0xB8000+160*0x11+02], 't'
- mov byte [abs 0xB8000+160*0x12+02], 'y'
- mov byte [abs 0xB8000+160*0x13+02], 'u'
- mov byte [abs 0xB8000+160*0x14+02], 'i'
- mov byte [abs 0xB8000+160*0x15+02], 'o'
- mov byte [abs 0xB8000+160*0x16+02], 'p'
- mov byte [abs 0xB8000+160*0x18+02], '^'
- mov byte [abs 0xB8000+160*0x18+82], 'V'
- mov byte [abs 0xB8000+160*0x02+82], '['
- mov byte [abs 0xB8000+160*0x03+82], ']'
- mov byte [abs 0xB8000+160*0x04+82], 'a'
- mov byte [abs 0xB8000+160*0x05+82], 's'
- mov byte [abs 0xB8000+160*0x06+82], 'd'
- mov byte [abs 0xB8000+160*0x07+82], 'f'
- mov byte [abs 0xB8000+160*0x08+82], 'g'
- mov byte [abs 0xB8000+160*0x09+82], 'h'
- mov byte [abs 0xB8000+160*0x0A+82], 'j'
- mov byte [abs 0xB8000+160*0x0B+82], 'k'
- mov byte [abs 0xB8000+160*0x0C+82], 'l'
- mov byte [abs 0xB8000+160*0x0D+82], ';'
- mov byte [abs 0xB8000+160*0x0E+82], 'z'
- mov byte [abs 0xB8000+160*0x0F+82], 'x'
- mov byte [abs 0xB8000+160*0x10+82], 'c'
- mov byte [abs 0xB8000+160*0x11+82], 'v'
- mov byte [abs 0xB8000+160*0x12+82], 'b'
- mov byte [abs 0xB8000+160*0x13+82], 'n'
- mov byte [abs 0xB8000+160*0x14+82], 'm'
- mov byte [abs 0xB8000+160*0x15+82], '<'
- mov byte [abs 0xB8000+160*0x16+82], '>'
+ mov byte [abs 0xB8000+160*0x13+02], '^'
+ mov byte [abs 0xB8000+160*0x13+82], 'V'
+ mov byte [abs 0xB8000+160*0x02+82], 'y'
+ mov byte [abs 0xB8000+160*0x03+82], 'u'
+ mov byte [abs 0xB8000+160*0x04+82], 'i'
+ mov byte [abs 0xB8000+160*0x05+82], 'o'
+ mov byte [abs 0xB8000+160*0x06+82], 'p'
+ mov byte [abs 0xB8000+160*0x07+82], 'a'
+ mov byte [abs 0xB8000+160*0x08+82], 's'
+ mov byte [abs 0xB8000+160*0x09+82], 'd'
+ mov byte [abs 0xB8000+160*0x0A+82], 'f'
+ mov byte [abs 0xB8000+160*0x0B+82], 'g'
+ mov byte [abs 0xB8000+160*0x0C+82], 'h'
+ mov byte [abs 0xB8000+160*0x0D+82], 'j'
+ mov byte [abs 0xB8000+160*0x0E+82], 'k'
+ mov byte [abs 0xB8000+160*0x0F+82], 'l'
+ mov byte [abs 0xB8000+160*0x10+82], 'z'
+ mov byte [abs 0xB8000+160*0x11+82], 'x'
 funconf:
  lea rax, [crash]
  mov [functable+0x00], rax 
@@ -283,7 +273,21 @@ printeax:
  pop rbx
  pop rax
  ret
+printat:
+ ;Print offset in rdi
+ ;Zero terminated string in rsi
+ printatl:
+ mov al, [rsi]
+ test al, al
+ jz printatend
+ mov [rdi], al
+ inc rsi
+ inc rdi
+ inc rdi
+ jmp printatl
+ printatend ret
 printlines:
+ ;Print struct in rdi
  xor bh, bh   ;Character index in line
  mov ecx, 2   ;Line
  mov esi, 6   ;Column offset
@@ -323,11 +327,13 @@ printlines:
   plend:
  ret
 crash:
- dq 0
+ jmp 0
 
 interr:
- lea rdi, [errtable]
- call printlines
+ mov rdi, 0xB8000+160*24
+ mov byte [rdi], 'a'
+ lea rsi, [errmsg]
+ call printat
  cli
  hlt
 int21:
@@ -378,8 +384,7 @@ data:
   idt.end:
  opttable:
   db 'Crash', 0, 3
- errtable:
-  db 'Everything has crashed!', 0, 3
+ errmsg db 'Everything has crashed!', 0
  functable:
   dq 0
   dq 0
