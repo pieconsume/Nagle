@@ -74,9 +74,9 @@ genpat0:
    loop genpatloop
  respatloop:
  ovrpatloop:
- jmp genpmt
+ jmp genpmls
 genpat1:
-genpmt:
+genpmls:
  genpml4:
   lea rax, [pml3im]
   lea rbx, [pml3hh]
@@ -168,11 +168,76 @@ intconf:
  mov [ecx+0xF0], eax        ;Save values
  mov dword [edx], 0x12      ;Register to read/write to
  mov dword [edx+0x10], 0x21 ;???
- call printeax
+scrconf:
+ mov al, 0x0A ; Disable cursor
+ mov dx, 0x3D4
+ out dx, al
+ inc dx
+ mov al, 0x20
+ out dx, al
+ mov byte [abs 0xB8000+160*0x00+02], '^'
+ mov byte [abs 0xB8000+160*0x00+82], 'V'
+ mov byte [abs 0xB8000+160*0x02+02], '0'
+ mov byte [abs 0xB8000+160*0x03+02], '1'
+ mov byte [abs 0xB8000+160*0x04+02], '2'
+ mov byte [abs 0xB8000+160*0x05+02], '3'
+ mov byte [abs 0xB8000+160*0x06+02], '4'
+ mov byte [abs 0xB8000+160*0x07+02], '5'
+ mov byte [abs 0xB8000+160*0x08+02], '6'
+ mov byte [abs 0xB8000+160*0x09+02], '7'
+ mov byte [abs 0xB8000+160*0x0A+02], '8'
+ mov byte [abs 0xB8000+160*0x0B+02], '9'
+ mov byte [abs 0xB8000+160*0x0C+02], '0'
+ mov byte [abs 0xB8000+160*0x0D+02], 'q'
+ mov byte [abs 0xB8000+160*0x0E+02], 'w'
+ mov byte [abs 0xB8000+160*0x0F+02], 'e'
+ mov byte [abs 0xB8000+160*0x10+02], 'r'
+ mov byte [abs 0xB8000+160*0x11+02], 't'
+ mov byte [abs 0xB8000+160*0x12+02], 'y'
+ mov byte [abs 0xB8000+160*0x13+02], 'u'
+ mov byte [abs 0xB8000+160*0x14+02], 'i'
+ mov byte [abs 0xB8000+160*0x15+02], 'o'
+ mov byte [abs 0xB8000+160*0x16+02], 'p'
+ mov byte [abs 0xB8000+160*0x18+02], '^'
+ mov byte [abs 0xB8000+160*0x18+82], 'V'
+ mov byte [abs 0xB8000+160*0x02+82], '['
+ mov byte [abs 0xB8000+160*0x03+82], ']'
+ mov byte [abs 0xB8000+160*0x04+82], 'a'
+ mov byte [abs 0xB8000+160*0x05+82], 's'
+ mov byte [abs 0xB8000+160*0x06+82], 'd'
+ mov byte [abs 0xB8000+160*0x07+82], 'f'
+ mov byte [abs 0xB8000+160*0x08+82], 'g'
+ mov byte [abs 0xB8000+160*0x09+82], 'h'
+ mov byte [abs 0xB8000+160*0x0A+82], 'j'
+ mov byte [abs 0xB8000+160*0x0B+82], 'k'
+ mov byte [abs 0xB8000+160*0x0C+82], 'l'
+ mov byte [abs 0xB8000+160*0x0D+82], ';'
+ mov byte [abs 0xB8000+160*0x0E+82], 'z'
+ mov byte [abs 0xB8000+160*0x0F+82], 'x'
+ mov byte [abs 0xB8000+160*0x10+82], 'c'
+ mov byte [abs 0xB8000+160*0x11+82], 'v'
+ mov byte [abs 0xB8000+160*0x12+82], 'b'
+ mov byte [abs 0xB8000+160*0x13+82], 'n'
+ mov byte [abs 0xB8000+160*0x14+82], 'm'
+ mov byte [abs 0xB8000+160*0x15+82], '<'
+ mov byte [abs 0xB8000+160*0x16+82], '>'
+funconf:
+ lea rax, [crash]
+ mov [functable+0x00], rax 
 mainloop:
  sti
+ lea rdi, [opttable]
+ call printlines
+ cmp byte [handled], 1
+ je nokey
+ cmp byte [lastkey], 0x0B
+ je callfunc
+ mov byte [handled], 1
+ nokey:
  hlt
  jmp mainloop
+callfunc:
+ call [functable]
 
 palloc:
  ; rdi, pointer to ipmm
@@ -195,15 +260,6 @@ palloc:
 pmap:
 punmap:
 pfree:
-
-int21:
- in al, 0x60           ;Read keyboard input
- mov [lastkey], al     ;Save
- mov byte [handled], 0 ;Clear handled flag
- mov eax, 0xFEE000B0   ;Send EOI
- mov dword [eax], 0
- iretq
-
 printeax:
  push rax
  push rbx
@@ -227,6 +283,60 @@ printeax:
  pop rbx
  pop rax
  ret
+printlines:
+ xor bh, bh   ;Character index in line
+ mov ecx, 2   ;Line
+ mov esi, 6   ;Column offset
+ plnextline:
+ mov eax, 160
+ mul ecx
+ add eax, 0xB8000
+ add eax, esi
+ plloop:
+  mov bl, [rdi]
+  test bl, bl
+  jz plnext
+  mov [eax], bl
+  add eax, 2
+  inc rdi
+  inc bh
+  cmp bh, 37
+  je plnexts
+  jmp plloop
+ plnexts:
+  inc rdi
+  mov bl, [rdi]
+  test bl, bl
+  jnz plnexts
+ plnext:
+  xor bh, bh
+  inc rdi
+  mov bl, [rdi]
+  cmp bl, 3
+  je plend
+  inc ecx
+  cmp ecx, 0x17
+  jne plnextline
+  add esi, 80
+  mov ecx, 2
+  jmp plnextline
+  plend:
+ ret
+crash:
+ dq 0
+
+interr:
+ lea rdi, [errtable]
+ call printlines
+ cli
+ hlt
+int21:
+ in al, 0x60           ;Read keyboard input
+ mov [lastkey], al     ;Save
+ mov byte [handled], 0 ;Clear handled flag
+ mov eax, 0xFEE000B0   ;Send EOI
+ mov dword [eax], 0
+ iretq
 
 data:
  align 0x10, db 0
@@ -246,15 +356,33 @@ data:
   dw idt.end-idt-1
   dq 0xFFFFFFFFC0000000+idt ;Hardcoded value for now. Set during init for portability later
  idt:
-  times 0x21*0x10 db 0 ;Reserved entries
-  dw int21             ;Offset 0-15 ;0x21 is keyboard
-  dw 0x08              ;Segment selector
-  db 0                 ;IST/reserved
-  db 0x8E              ;Gatetype(0-3), 0(4), DPL(5-6), present(7)
-  dw 0xC000            ;Offset 16-31
-  dd 0xFFFFFFFF        ;Offset 32-63 ;Hardcoded value for now. Set during init for portability later
-  dd 0                 ;Reserved
+  %macro idterr 0
+   dw interr     ;Offset 0-15 ;0x21 is keyboard
+   dw 0x08       ;Segment selector
+   db 0          ;IST/reserved
+   db 0x8E       ;Gatetype(0-3), 0(4), DPL(5-6), present(7)
+   dw 0xC000     ;Offset 16-31
+   dd 0xFFFFFFFF ;Offset 32-63 ;Hardcoded value for now. Set during init for portability later
+   dd 0          ;Reserved
+   %endmacro
+  %rep 0x21
+   idterr        ;Reserved entries
+   %endrep
+  dw int21       ;Offset 0-15 ;0x21 is keyboard
+  dw 0x08        ;Segment selector
+  db 0           ;IST/reserved
+  db 0x8E        ;Gatetype(0-3), 0(4), DPL(5-6), present(7)
+  dw 0xC000      ;Offset 16-31
+  dd 0xFFFFFFFF  ;Offset 32-63 ;Hardcoded value for now. Set during init for portability later
+  dd 0           ;Reserved
   idt.end:
-%if $-$$ > 0x0800
+ opttable:
+  db 'Crash', 0, 3
+ errtable:
+  db 'Everything has crashed!', 0, 3
+ functable:
+  dq 0
+  dq 0
+%if $-$$ > 0x0F00
  %error "Exceeded current allocation"
  %endif
