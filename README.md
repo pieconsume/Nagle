@@ -2,8 +2,8 @@
 
 Current status
  - Restructuring the project for github. Right now nothing is put together and it's just a mess of disjointed code.
- - Most code hasn't even been copied back into the project yet
- - Not working on it because I'm working on other things at the moment
+ - Most code hasn't even been copied back into the project yet.
+ - Working on new stuff (APIC/interrupts atm) instead of porting old code back in.
 
 Things checkmarked aren't necessarily done, it just means I had it in a working state at some point and largely understand how it works.
 The circle thingies mean I've worked on it at some point but never completely implemented it or don't fully understand it yet
