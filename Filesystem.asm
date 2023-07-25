@@ -243,9 +243,9 @@ folders:  ;0x15-0x17
   dw 0x0000           ;Write time
   dw 0x0000           ;Write date
   dw 0x0005           ;Low bytes of the first cluster
-  dd 0x00000000       ;Byte count
-  dq "TEST    "       ;Name
-  db 'EFI'            ;Extension
+  dd lboot.end-lboot  ;Byte count
+  dq "Test    "       ;Name
+  db 'efi'            ;Extension
   db 0x20             ;Attributes (Archive)
   db 0x00             ;NT reserved
   db 0x00             ;MS timestamp
@@ -256,7 +256,7 @@ folders:  ;0x15-0x17
   dw 0x0000           ;Write time
   dw 0x0000           ;Write date
   dw 0x0000           ;Low bytes of the first cluster
-  dd 0x00000000       ;Byte count
+  dd efib.end-efib    ;Byte count
   dq "Kernel64"       ;Name
   db '   '            ;Extension
   db 0x00             ;Attributes (Archive)
@@ -269,19 +269,19 @@ folders:  ;0x15-0x17
   dw 0x0000           ;Write time
   dw 0x0000           ;Write date
   dw 0x0000           ;Low bytes of the first cluster
-  dd 0x00000000       ;Byte count
+  dd kern.end-kern    ;Byte count
   boot.end:
   times 0x200-(boot.end-boot) db 0
-files:
+files:    ;0x18-0x1D | 0x05-0x0A
  lboot:   ;0x18-0x18 | 0x05-0x05
   incbin "Builds/LegacyBoot"
   lboot.end:
   times 0x200-(lboot.end-lboot) db 0
- efiboot: ;0x19-0x19 | 0x06-0x06
+ efib: ;0x19-0x19 | 0x06-0x06
   incbin "Builds/UEFIBoot"
-  efiboot.end:
-  times 0x200-(efiboot.end-efiboot) db 0
- kernel:  ;0x1A-0x1D | 0x07-0x0A
-  kernel.end:
+  efib.end:
+  times 0x200-(efib.end-efib) db 0
+ kern:  ;0x1A-0x1D | 0x07-0x0A
   incbin "Builds/NagleKernel64"
-  times 0x1000-(kernel.end-kernel) db 0
+  kern.end:
+  times 0x1000-(kern.end-kern) db 0
