@@ -167,7 +167,20 @@ intconf:
  mov eax, 0x1FF             ;Set the enable bit
  mov [ecx+0xF0], eax        ;Save values
  mov dword [edx], 0x12      ;Register to read/write to
- mov dword [edx+0x10], 0x21 ;???
+ mov dword [edx+0x10], 0x21 ;Interrupt vector
+ mov dword [edx], 0x20      ;Register to read/write to
+ mov dword [edx+0x10], 0x28 ;Interrupt vector
+rtcconf:
+ mov al, 0x8B ;Configure RTC
+ out 0x70, al ;Select B
+ in al, 0x71  ;Read from B
+ mov bl, al   ;Store B and set bit
+ or bl, 0x40
+ mov al, 0x8B ;Select B again
+ out 0x70, al
+ mov al, bl
+ out 0x71, al ;Turn on RTC IRQs
+ int 0x28
 scrconf:
  mov al, 0x0A ; Disable cursor
  mov dx, 0x3D4
@@ -228,6 +241,7 @@ mainloop:
  jmp mainloop
 callfunc:
  call [functable]
+ jmp mainloop
 
 palloc:
  ; rdi, pointer to ipmm
@@ -343,6 +357,14 @@ int21:
  mov eax, 0xFEE000B0   ;Send EOI
  mov dword [eax], 0
  iretq
+int28:
+ inc byte [abs 0xB8000+160*24+158]
+ mov al, 0x0C
+ out 0x70, al
+ in al, 0x71
+ mov eax, 0xFEE000B0   ;Send EOI
+ mov dword [eax], 0
+ iretq
 
 data:
  align 0x10, db 0
@@ -372,9 +394,19 @@ data:
    dd 0          ;Reserved
    %endmacro
   %rep 0x21
-   idterr        ;Reserved entries
+   idterr        ;Reserved entries + PIT interrupt
    %endrep
   dw int21       ;Offset 0-15 ;0x21 is keyboard
+  dw 0x08        ;Segment selector
+  db 0           ;IST/reserved
+  db 0x8E        ;Gatetype(0-3), 0(4), DPL(5-6), present(7)
+  dw 0xC000      ;Offset 16-31
+  dd 0xFFFFFFFF  ;Offset 32-63 ;Hardcoded value for now. Set during init for portability later
+  dd 0           ;Reserved
+  %rep 0x06
+   idterr        ; Not using these yet
+   %endrep
+  dw int28       ;Offset 0-15 ;0x28 is RTC
   dw 0x08        ;Segment selector
   db 0           ;IST/reserved
   db 0x8E        ;Gatetype(0-3), 0(4), DPL(5-6), present(7)
