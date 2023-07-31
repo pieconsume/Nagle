@@ -1,6 +1,4 @@
-# Nagle
-
-## Project status and todo-list
+# Project status and todo-list
 
 Current status
  - Most stuff is ported back into the project. The main thing that is missing is disk drivers.
@@ -33,18 +31,18 @@ Todo list
 - Video Core ❌
 - Video Drivers (Intel Integrated ❌, AMD ❌, NVIDIA 💀)
 
-## Structural overview
+# Structural overview
 
-### Design philosophy
+## Design philosophy
 
 Nagle doesn't have any particularly design philosophy or paridigms, I just code things in the way that makes the most sense to me.
 
 I have made it my goal to not implement any existing protocols or port existing drivers. I want to create something that is entirely my own.
 Because of this the project progresses very slowly but I again a solid understanding of any interface I work with.
 
-### Boot overview
+## Boot overview
 
-#### Legacy MBR booting
+### Legacy MBR booting
 
 Legacy MBR booting uses standard 2-step booting.
 
@@ -54,13 +52,13 @@ The main loader (LegacyBoot.asm) provides the rest of the functionality such as 
 
 Due to MBR being phased out for UEFI booting I have put little effort into this section of the project.
 
-#### UEFI booting
+### UEFI booting
 
 UEFI booting is currently not functional. Since UEFI already starts the system in 64 bit mode the only initializations necessary are getting the memory map and creating a page map.
 
 I plan to move the kernel into the UEFI loader later so that disk loading code is not needed.
 
-#### Kernel loading
+### Kernel loading
 
 The kernel is designed to have minimal initialization required. The requirments are as follows:
  - Loaded in 64 bit long mode
@@ -72,6 +70,6 @@ The kernel is designed to have minimal initialization required. The requirments 
 
 The kernel is fully relocatable and can be loaded in / mapped to any memory location. The kernel is currently loaded in at 0x40000 and maps itself to the highest quarter (0xFFFFFFFFC0000000).
 
-### Kernel structure
+## Kernel structure
 
 The kernel is currently barebones and provides no interfaces or abstractions. I am primarily focused on hardware detection/initialization and drivers at the moment.
