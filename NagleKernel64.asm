@@ -11,7 +11,8 @@
  %define pml2   $$+0x4000
  %define kernpm $$+0x5000   ;The pm suffix is for PML1 structs
  %define sdtpm  $$+0x6000
- %define pciblk $$+0x7000   ;Temporary allocation
+ %define pciblk $$+0x7000   ;Temporary block for PCI
+ %define atablk $$+0x8000   ;Temporary block for ATA
  %define kern   $$+0x000000 ;Kernel
  %define sdt    $$+0x200000 ;Standard data table
  %define pmm    $$+0x400000 ;Not currently mapped
@@ -79,6 +80,7 @@ genpat0:
  jmp genpmls
 genpat1:
 genpmls:
+ ;Todo - allocate memory blocks using palloc to avoid touching reserved memory
  genpml4:
   lea rax,[pml3im]
   lea rbx,[pml3hh]
@@ -279,6 +281,7 @@ pciconf:
   pop rbx
   notbridge:
   ret
+ pciend:
 intconf:
  lidt [idtr]
  ;Currently assuming that the addresses are initialized to their standard locations. Get the values from the MADT later
@@ -302,6 +305,31 @@ rtcconf:
  mov al,bl
  out 0x71,al ;Turn on RTC IRQs 
  int 0x28
+ataconf:
+ pioconf:
+  piobus0:
+  xor eax,eax
+  mov dx,0x1F6
+  mov al,0x0A
+  call piochk
+  mov [drives+0x00],eax
+  cmp al,0xFF
+  je piobus1
+  mov dx,0x1F6
+  mov al,0x0B
+  call piochk
+  mov [drives+0x04],eax
+  piobus1:
+  mov dx,0x176
+  mov al,0x0A
+  call piochk
+  mov [drives+0x08],eax
+  mov dx,0x176
+  mov al,0x0B
+  call piochk
+  mov [drives+0x08],eax
+  cli
+  hlt
 scrconf:
  mov al,0x0A ; Disable cursor
  mov dx,0x3D4
@@ -364,128 +392,197 @@ callfunc:
  call [functable]
  jmp mainloop
 
-palloc:
- ; rdi,pointer to ipmm
- push rsi
- mov rsi,rdi
- mov eax,[rdi]
- shl eax,3
- add rsi,rax
- mov eax,[rsi+4]
- dec dword [rsi+4]
- cmp [rsi],eax
- jne pallocr
- dec dword [rdi]
- mov qword [rsi],0
- pallocr:
- shl rax,12
- or al,0x03
- pop rsi
- ret
-pmap:
-punmap:
-pfree:
-printeax:
- push rax
- push rbx
- push rcx
- push rdx
- mov edx,[prntbuf]
- mov ecx,8
- printeax.loop:
-  lea rbx,[str.hex]
-  mov r8d,eax
-  shr r8d,28
-  add rbx,r8
-  mov bl,[rbx]
-  mov [edx],bl
-  add edx,2
-  shl eax,4
-  loop printeax.loop
- add dword [prntbuf],16
- pop rdx
- pop rcx
- pop rbx
- pop rax
- ret
-printat:
- ;Print offset in rdi
- ;Zero terminated string in rsi
- printatl:
- mov al,[rsi]
- test al,al
- jz printatend
- mov [rdi],al
- inc rsi
- inc rdi
- inc rdi
- jmp printatl
- printatend ret
-printlines:
- ;Print struct in rdi
- xor bh,bh   ;Character index in line
- mov ecx,2   ;Line
- mov esi,6   ;Column offset
- plnextline:
- mov eax,160
- mul ecx
- add eax,0xB8000
- add eax,esi
- plloop:
-  mov bl,[rdi]
-  test bl,bl
-  jz plnext
-  mov [eax],bl
-  add eax,2
+mem:
+ palloc:
+  ; rdi,pointer to ipmm
+  push rsi
+  mov rsi,rdi
+  mov eax,[rdi]
+  shl eax,3
+  add rsi,rax
+  mov eax,[rsi+4]
+  dec dword [rsi+4]
+  cmp [rsi],eax
+  jne pallocr
+  dec dword [rdi]
+  mov qword [rsi],0
+  pallocr:
+  shl rax,12
+  or al,0x03
+  pop rsi
+  ret
+ pmap:
+ punmap:
+ pfree:
+atapi:
+ pichk:
+  ret
+atapio:
+ ;I currently only have ATAPI hard drives to test with so I'm putting most of this off for later
+ ;The piochk function isnt fully tested but it will send back the correct drive type in ax which is good enough for me
+ piochk:
+  ;Inputs
+   ;al,  master(0xA0)/slave(0xB0)
+   ;dx,  port base
+   ;rdi, result block
+  ;Outputs
+   ;eax, result
+  call pioset  ;0x06->0x07
+  cmp al,0xFF  ;If al is 0xFF then the bus is not present
+  jz piochkerr
+  xor al,al
+  sub dx,2     ;0x07->0x05 LBAhi register
+  out dx,al
+  dec dx       ;0x05->0x04 LBAmid
+  out dx,al
+  dec dx       ;0x04->0x03 LBAlo
+  out dx,al
+  dec dx       ;0x03->0x02 Sectorcount
+  out dx,al
+  add dx,5     ;0x02->0x07 Status/command
+  mov al,0xEC  ;IDENTIFY
+  out dx,al
+  in al,dx
+  test al,al   ;If status is 0 then the device is not present
+  jz piochkerr
+  piopoll0:
+  in al,dx     ;Still the status port
+  test al,0x80 ;Wait for the BSY bit to clear
+  jnz piopoll0
+  sub dx,3     ;0x07->0x04 LBAmid
+  in al,dx
+  shl ax,8
+  inc dx       ;0x04->0x05 LBAhi
+  in al,dx
+  test ax,ax
+  jnz piochkerr
+  add dx,2     ;0x05->0x07 Status
+  piopoll1:
+  in al,dx
+  test al,0x09 ;Wait until DRQ or ERR sets
+  jz piopoll1
+  test al,1
+  jnz piochkerr
+  sub dx,7     ;0x07->0x00 Data
+  mov ecx,256
+  rep insw     ;Read the block
+  or eax,0x10000000
+  xor ax,ax
+  ret
+  piochkerr:
+  and eax,0xFFFF
+  ret
+ piord:
+ piowr:
+ pioset:
+  ;al, master(0xA0)/slave(0xB0)
+  ;dx, drive select port
+  out dx,al
+  inc dx              ;Status register
+  times 0x10 in al,dx ;400ns delay
+  ret
+ints:
+ interr:
+  mov rdi,0xB8000+160*24
+  mov byte [rdi],'a'
+  lea rsi,[errmsg]
+  call printat
+  cli
+  hlt
+ int21:
+  in al,0x60           ;Read keyboard input
+  mov [lastkey],al     ;Save
+  mov byte [handled],0 ;Clear handled flag
+  mov eax,0xFEE000B0   ;Send EOI
+  mov dword [eax],0
+  iretq
+ int28:
+  inc byte [abs 0xB8000+160*24+158]
+  mov al,0x0C
+  out 0x70,al
+  in al,0x71
+  mov eax,0xFEE000B0   ;Send EOI
+  mov dword [eax],0
+  iretq
+misc:
+ printeax:
+  push rax
+  push rbx
+  push rcx
+  push rdx
+  mov edx,[prntbuf]
+  mov ecx,8
+  printeax.loop:
+   lea rbx,[str.hex]
+   mov r8d,eax
+   shr r8d,28
+   add rbx,r8
+   mov bl,[rbx]
+   mov [edx],bl
+   add edx,2
+   shl eax,4
+   loop printeax.loop
+  add dword [prntbuf],16
+  pop rdx
+  pop rcx
+  pop rbx
+  pop rax
+  ret
+ printat:
+  ;Print offset in rdi
+  ;Zero terminated string in rsi
+  printatl:
+  mov al,[rsi]
+  test al,al
+  jz printatend
+  mov [rdi],al
+  inc rsi
   inc rdi
-  inc bh
-  cmp bh,37
-  je plnexts
-  jmp plloop
- plnexts:
   inc rdi
-  mov bl,[rdi]
-  test bl,bl
-  jnz plnexts
- plnext:
-  xor bh,bh
-  inc rdi
-  mov bl,[rdi]
-  cmp bl,3
-  je plend
-  inc ecx
-  cmp ecx,0x17
-  jne plnextline
-  add esi,80
-  mov ecx,2
-  jmp plnextline
-  plend:
- ret
-crash:
- jmp 0
-
-interr:
- mov rdi,0xB8000+160*24
- mov byte [rdi],'a'
- lea rsi,[errmsg]
- call printat
- cli
- hlt
-int21:
- in al,0x60           ;Read keyboard input
- mov [lastkey],al     ;Save
- mov byte [handled],0 ;Clear handled flag
- mov eax,0xFEE000B0   ;Send EOI
- mov dword [eax],0
- iretq
-int28:
- inc byte [abs 0xB8000+160*24+158]
- mov al,0x0C
- out 0x70,al
- in al,0x71
- mov eax,0xFEE000B0   ;Send EOI
- mov dword [eax],0
- iretq
+  jmp printatl
+  printatend ret
+ printlines:
+  ;Print struct in rdi
+  xor bh,bh   ;Character index in line
+  mov ecx,2   ;Line
+  mov esi,6   ;Column offset
+  plnextline:
+  mov eax,160
+  mul ecx
+  add eax,0xB8000
+  add eax,esi
+  plloop:
+   mov bl,[rdi]
+   test bl,bl
+   jz plnext
+   mov [eax],bl
+   add eax,2
+   inc rdi
+   inc bh
+   cmp bh,37
+   je plnexts
+   jmp plloop
+  plnexts:
+   inc rdi
+   mov bl,[rdi]
+   test bl,bl
+   jnz plnexts
+  plnext:
+   xor bh,bh
+   inc rdi
+   mov bl,[rdi]
+   cmp bl,3
+   je plend
+   inc ecx
+   cmp ecx,0x17
+   jne plnextline
+   add esi,80
+   mov ecx,2
+   jmp plnextline
+   plend:
+  ret
+ crash:
+  jmp 0
 
 data:
  align 0x10,db 0
@@ -496,6 +593,7 @@ data:
  rsdt    dq 0
  xsdt    dq 0
  madt    dq 0
+ drives  times 8 dd 0
  prntbuf dd 0xB8000
  str.hex db '0123456789ABCDEF'
  pcilen  dd 0
