@@ -60,7 +60,7 @@ I plan to move the kernel into the UEFI loader later so that disk loading code i
 
 ### Kernel loading
 
-The kernel is designed to have minimal initialization required. The requirments are as follows:
+The kernel is designed to have minimal initialization required. The requirements are as follows:
  - Loaded in 64 bit long mode
  - RAX contains a pointer to the kernel flags and reserved memory
  - The kernel flags will have the memory map type bit set correctly
