@@ -8,77 +8,99 @@
  %define pml3hh $$+0x3000   ;PML3 for higher half kernel
  %define pml2   $$+0x4000
  %define kernpm $$+0x5000   ;The pm suffix is for PML1 structs
- %define sdtpm  $$+0x6000
+ %define patblk $$+0x6000   ;Temporary block for the Page Allocation Table
  %define pciblk $$+0x7000   ;Temporary block for PCI
  %define atablk $$+0x8000   ;Temporary block for ATA
  %define kern   $$+0x000000 ;Kernel
  %define sdt    $$+0x200000 ;Standard data table
- %define pmm    $$+0x400000 ;Not currently mapped
 
-;Currently relying on the keyboard being on scancode set 1
+;Issues
+ ;Currently relying on the keyboard being on scancode set 1
+ ;Functions don't have any calling convention yet and keeping track of which registers are preserved over function calls is getting to be a pain
 
 init:
  ;The loader passes a pointer to kernel flags and reserved sections in rax
  mov [rsrvptr],rax      ;Store reserved sections
- mov ebx,[rax+0x08]
+ mov rbx,[rax]
+ mov [rsrvflg],rbx
+ mov ebx,[rax+0x08]     ;Addresses are stored as 32 bit page offsets
  shl rbx,12
- mov [kernphy],rbx
+ mov [kernphy],rbx      ;Physical address of the kernel
  mov ebx,[rax+0x10]
  shl rbx,12
- mov [pml4phy],rbx
+ mov [pml4phy],rbx      ;Physical address of the PML4 table
  mov ebx,[rax+0x18]
  shl rbx,12
- mov [pmmphy],rbx
+ mov [pmmphy],rbx       ;Physical address of the physical memory map
  lea rsp,[stack]        ;Set the stack
+memconf:
+ xor ecx,ecx
  test byte [rax+0x05],1 ;Get the memory map type from the flags
  jnz genpat1
-genpat0:
- ; Todo - recode and add comments
- mov rdi,[pmmphy]
- xor ecx,ecx
- mov cx,[rax+0x06]
- lea rsi,[ipmm+0x08]
- genpatloop:
-  genpatloc:
-   mov eax,[rdi+0x10]
-   cmp eax,1
-   jnz genpatnxt
-   mov rax,[rdi]
-   test rax,0xFFF
-   jz genpatlocdiv
-   mov edx,0x1000
-   mov bx,ax
-   and bx,0xFFF
-   sub dx,bx
-   and rax,0xFFF
-   inc rax
-   genpatlocdiv:
-   shr rax,12
-  genpatlen:
-   mov rbp,[rdi+0x08]
-   cmp rbp,0
-   je genpatnxt
-   sub rbp,rdx
-   jo genpatnxt
-   jz genpatnxt
-   test rbp,0xFFF
-   jz genpatlendiv
-   and rbp,0xFFFFFFFFFFFFF000
-   genpatlendiv:
-   shr rbp,12
-  genpatsto:
-   inc dword [ipmm]
-   add ebp,eax
-   mov [rsi+0x00],eax
-   mov [rsi+0x04],ebp
-   add rsi,0x08
-  genpatnxt:
-   add rdi,0x18
-   loop genpatloop
- respatloop:
- ovrpatloop:
- jmp genpmls
-genpat1:
+ genpat0:
+  ;0xE820 Memory Map
+   ;0x00 - qword Base address
+   ;0x08 - qword Length
+   ;0x10 - dword type
+    ;0x01 - Usuable
+    ;0x02 - Reserved
+    ;0x03 - ACPI reclaimable
+    ;0x04 - ACPI NVS
+    ;0x05 - Bad
+   ;0x14 - dword ACPI Extended Attributes
+    ;0-0  - Entry present
+    ;1-1  - Non-volatile
+    ;2-31 - Reserved
+  mov rdi,[pmmphy]      ;Physical memory map in rdi
+  lea rsi,[patblk]      ;Page allocation table in rsi
+  xor ebp,ebp           ;Clear rbp for storing extra values
+  mov cx,[rax+0x06]     ;Get the entry count in cx
+  xor r8w,r8w           ;Use r8w to store the final entry count
+  genpat0loop0:         ;Loop for generating available space
+   cmp byte [rdi+0x10],1 ;Check if the entry is usuable memory
+   jne gp0nxt
+   mov rbx,[rdi]         ;Get the base address
+   mov rdx,[rdi+0x08]    ;Get the length
+   test bx,0x0FFF        ;Check if the base address is page aligned
+   jz gp0bal             ;If it isnt then clear the alignment bits, increment to the next page, and decrement the length
+   mov bp,bx             ;Copy the offset into the page to bp
+   and bp,0x0FFF         ;Clear the page offset
+   sub bp,0x1000         ;Get the amount of bytes removed by subtracting 0x1000 then negating
+   neg bp
+   sub rdx,rbp           ;Subtract that from the length of the section
+   jo gp0nxt             ;If the length overflows or is zero then ignore the entry
+   jz gp0nxt
+   and bx,0xF000         ;Clear the alignment bits for the base
+   add rbx,0x1000        ;Increment the base page
+   gp0bal:
+   test dx,0x0FFF        ;Same alignment check for the length
+   jz gp0store
+   and dx,0xF000        ;Clear the alignment bits
+   jz gp0nxt             ;Again, if the length becomes zero ignore the entry
+   gp0store:
+   shr rbx,12            ;Store the values as page offsets, not byte offsets
+   shr rdx,12
+   add rdx,rbx           ;Add the base to the offset then subtract one to get the final page in the entry
+   dec rdx
+   mov [rsi+0x00],ebx    ;Store as an 8 entry with 2 dwords
+   mov [rsi+0x04],edx
+   add rsi,8             ;Increment to the next pmm entry
+   inc r8w               ;Increment the pat entry count
+   ;Later on add checks for if the end of the patblk has been reached
+   gp0nxt:
+   add rdi,24
+   loop genpat0loop0
+  jmp genpatend
+  genpat0loop1:         ;Loop for removing space reserved by the system
+  loop genpat0loop1
+  genpat0loop2:         ;Loop for removing space reserved by the rsrv struct
+  loop genpat0loop2
+  genpat0loop3:         ;Loop for removing overlapping spaces
+  loop genpat0loop3
+  jmp genpatend
+ genpat1:
+ genpatend:
+ mov [patents],r8w
 genpmls:
  ;Todo - allocate memory blocks using palloc to avoid touching reserved memory
  genpml4:
@@ -102,9 +124,6 @@ genpmls:
   lea rax,[kernpm]
   or rax,0x03
   mov [pml2+0x00],rax
-  lea rax,[sdtpm]
-  or rax,0x03
-  mov [pml2+0x08],rax
  genkpm:
   lea rax,[kernpm]
   lea rbx,$$
@@ -115,14 +134,12 @@ genpmls:
    add rax,8
    add rbx,0x1000
    loop genkpmloop
- genspm:
-  mov rax,[pml4phy]
-  or rax,0x03
-  mov [sdtpm],rax
  jmphh:
   mov rax,0xFFFFFFFFC0000000+endjmp
   jmp rax
   endjmp:
+hhfinit:
+ lea rsp,[stack] ;Reset the stack to be in the remapped kernel
 getrsdt:
  mov eax,0x80000 ;Search the first KiB of the EBDA
  mov rbx,'RSD PTR '
@@ -373,17 +390,14 @@ scrconf:
  mov al,0x20
  out dx,al
 funconf: 
- lea rax,[retfunc]
- lea rdi,[functable]
- mov ecx,0x20
- confloop:
- mov [rdi],rax
- add rdi,8
- loop confloop
  lea rax,[pcifunc]
  mov [functable+0x00],rax
  lea rax,[diskfunc]
  mov [functable+0x08],rax
+ lea rax,[pmmfunc]
+ mov [functable+0x10],rax
+ lea rax,[patfunc]
+ mov [functable+0x18],rax
 finconf:
  mov byte [abs 0xB8000+160*0x18+00],'0'
  mov byte [abs 0xB8000+160*0x18+02],'x'
@@ -404,6 +418,10 @@ mainloop:
  cmove rbx,[functable+0x00]
  cmp byte [lastkey],0x11    ;w pressed
  cmove rbx,[functable+0x08]
+ cmp byte [lastkey],0x12    ;e pressed
+ cmove rbx,[functable+0x10]
+ cmp byte [lastkey],0x13    ;r pressed
+ cmove rbx,[functable+0x18]
  test rbx,rbx
  jnz callfunc
  retfunc:
@@ -416,26 +434,12 @@ mainloop:
 
 mem:
  palloc:
-  ; rdi,pointer to ipmm
-  push rsi
-  mov rsi,rdi
-  mov eax,[rdi]
-  shl eax,3
-  add rsi,rax
-  mov eax,[rsi+4]
-  dec dword [rsi+4]
-  cmp [rsi],eax
-  jne pallocr
-  dec dword [rdi]
-  mov qword [rsi],0
-  pallocr:
-  shl rax,12
-  or al,0x03
-  pop rsi
-  ret
+ pallocrange:
+ pallocany:
+ pfree:
+ pfreerange:
  pmap:
  punmap:
- pfree:
 ata:
  atapi:
   pichk:
@@ -636,7 +640,41 @@ keyfuncs:
   mov eax,[drives+0x1C]
   call printeax
   jmp waitret
- waitret:
+ pmmfunc:
+  call clrscr
+  mov rdi,[pmmphy]
+  mov cx,[rsrvflg+0x06]
+  pmmfuncloop:
+  mov rax,[rdi+0x00]
+  call printrax
+  add qword [prntbuf],2  
+  mov rax,[rdi+0x08]
+  call printrax
+  add qword [prntbuf],2
+  mov eax,[rdi+0x10]
+  call printeax
+  add qword [prntbuf],2
+  mov eax,[rdi+0x14]
+  call printeax
+  add qword [prntbuf],58
+  add rdi,24
+  loop pmmfuncloop
+  jmp waitret
+ patfunc:
+  call clrscr
+  lea rdi,[patblk]
+  mov cx,[patents]
+  patfuncloop:
+  mov eax,[rdi+0x00]
+  call printeax
+  add qword [prntbuf],2
+  mov eax,[rdi+0x04]
+  call printeax
+  add qword [prntbuf],126
+  add rdi,8
+  loop patfuncloop
+  jmp waitret
+ waitret: 
   hlt
   test byte [handled],1
   jnz waitret
@@ -646,7 +684,7 @@ keyfuncs:
   call clrscr
   call printchoices
   ret
-misc:
+printing:
  printeax:
   push rax
   push rbx
@@ -676,7 +714,6 @@ misc:
   push rcx
   push rdx
   mov rdx,[prntbuf]
-  push rdx
   mov ecx,16
   printraxloop:
    lea rbx,[hexstr]
@@ -690,11 +727,11 @@ misc:
    loop printraxloop
   add qword [prntbuf],32
   pop rdx
-  mov [prntbuf],rdx
-  pop rdx
   pop rcx
   pop rbx
   pop rax
+  ret
+ printhexblk:
   ret
  printat:
   ;Print offset in rdi
@@ -803,10 +840,16 @@ misc:
   pop rbx
   pop rax
   ret
+sorting:
+ sort32:
+  ret
+ sort64:
+  ret
 
 data:
  align 0x10,db 0
  rsrvptr dq 0
+ rsrvflg dq 0
  kernphy dq 0
  pmmphy  dq 0
  pml4phy dq 0
@@ -816,6 +859,7 @@ data:
  prntbuf dq 0xB8000 ;Managing of this value is getting rather awful
  drives  times 8 dd 0
  driveio dw 0x1F6,0x176,0x1EE,0x16E
+ patents dw 0
  hexstr db '0123456789ABCDEF'
  pcilen  dd 0
  lastkey db 0
@@ -858,7 +902,9 @@ data:
   idt.end:
  opttable:
   db 'PCI Info',0
-  db 'Drive Info',0,3
+  db 'Drive Info',0
+  db 'Physical memory map',0
+  db 'Page allocation table',0,3
  functable:
   times 0x20 dq 0
 %if $-$$ > 0x0F00

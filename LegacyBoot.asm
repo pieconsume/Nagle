@@ -47,6 +47,7 @@ remappic:
  out 0x21,al 
  out 0xA1,al 
 getmap:
+ ;Note - never set ACPI compatibility bit, fix later?
  mov edi,memmap     ;Basic map getting code. Not sure how reliable it is but it works on my machine
  mov edx,0x534D4150
  xor ebx,ebx
