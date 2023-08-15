@@ -1,5 +1,3 @@
-; I haven't worked on this code in so long I have no idea how anything was designed
-
 ; Defs
  [BITS 64]
  [ORG 0]
@@ -16,6 +14,8 @@
  %define kern   $$+0x000000 ;Kernel
  %define sdt    $$+0x200000 ;Standard data table
  %define pmm    $$+0x400000 ;Not currently mapped
+
+;Currently relying on the keyboard being on scancode set 1
 
 init:
  ;The loader passes a pointer to kernel flags and reserved sections in rax
@@ -109,7 +109,7 @@ genpmls:
   lea rax,[kernpm]
   lea rbx,$$
   or rbx,3
-  mov ecx,0x10 ;Map 16 pages for the
+  mov ecx,0x20 ;Map 32 pages
   genkpmloop:
    mov [rax],rbx
    add rax,8
@@ -307,29 +307,64 @@ rtcconf:
  int 0x28
 ataconf:
  pioconf:
-  piobus0:
+  ;This code relies on proper firmware initialization of the ATA ports
+  ;OSDev wiki said that port locations can be obtained via PCI but that "this method is not exactly reliable" whatever that means
+  ;Bus     Primary      Control
+   ;Bus0 - 0x1F0-0x1F7, 0x3F6
+   ;Bus1 - 0x170-0x177, 0x376
+   ;Bus2 - 0x1E8-0x1EF, 0x3E6
+   ;Bus3 - 0x168-0x16F, 0x366
+  lea rdi,[atablk]
+  lea rsi,[drives]
+  lea rbp,[driveio]
+  mov ecx,4
+  pioconfloop:
+  push rdi
   xor eax,eax
-  mov dx,0x1F6
+  mov dx,[rbp]
   mov al,0x0A
   call piochk
-  mov [drives+0x00],eax
+  mov [rsi],eax
   cmp al,0xFF
-  je piobus1
-  mov dx,0x1F6
+  je pioconfnext
+  xor eax,eax
+  mov dx,[rbp]
   mov al,0x0B
   call piochk
-  mov [drives+0x04],eax
-  piobus1:
-  mov dx,0x176
+  mov [rsi+4],eax
+  pioconfnext:
+  add rbp,2
+  add rsi,8
+  pop rdi
+  add rdi,0x400
+  loop pioconfloop
+ piconf:
+  lea rdi,[atablk]
+  lea rsi,[drives]
+  lea rbp,[driveio]
+  mov ecx,4
+  piconfloop:
+  push rdi
+  cmp word [rsi],0x14EB
+  jne piconfnext
+  mov dx,[rbp]
   mov al,0x0A
-  call piochk
-  mov [drives+0x08],eax
-  mov dx,0x176
+  call pichk
+  shl eax,31
+  or [rsi],eax
+  cmp word [rsi+4],0x14EB
+  mov dx,[rbp]
   mov al,0x0B
-  call piochk
-  mov [drives+0x08],eax
-  cli
-  hlt
+  call pichk
+  shl eax,31
+  or [rsi+4],eax
+  piconfnext:
+  add rsi,8
+  add rbp,2
+  pop rdi
+  add rdi,0x400
+  loop piconfloop
+ sataconf:
 scrconf:
  mov al,0x0A ; Disable cursor
  mov dx,0x3D4
@@ -337,60 +372,47 @@ scrconf:
  inc dx
  mov al,0x20
  out dx,al
- mov byte [abs 0xB8000+160*0x00+02],'^'
- mov byte [abs 0xB8000+160*0x00+82],'V'
- mov byte [abs 0xB8000+160*0x02+02],'0'
- mov byte [abs 0xB8000+160*0x03+02],'1'
- mov byte [abs 0xB8000+160*0x04+02],'2'
- mov byte [abs 0xB8000+160*0x05+02],'3'
- mov byte [abs 0xB8000+160*0x06+02],'4'
- mov byte [abs 0xB8000+160*0x07+02],'5'
- mov byte [abs 0xB8000+160*0x08+02],'6'
- mov byte [abs 0xB8000+160*0x09+02],'7'
- mov byte [abs 0xB8000+160*0x0A+02],'8'
- mov byte [abs 0xB8000+160*0x0B+02],'9'
- mov byte [abs 0xB8000+160*0x0C+02],'0'
- mov byte [abs 0xB8000+160*0x0D+02],'q'
- mov byte [abs 0xB8000+160*0x0E+02],'w'
- mov byte [abs 0xB8000+160*0x0F+02],'e'
- mov byte [abs 0xB8000+160*0x10+02],'r'
- mov byte [abs 0xB8000+160*0x11+02],'t'
- mov byte [abs 0xB8000+160*0x13+02],'^'
- mov byte [abs 0xB8000+160*0x13+82],'V'
- mov byte [abs 0xB8000+160*0x02+82],'y'
- mov byte [abs 0xB8000+160*0x03+82],'u'
- mov byte [abs 0xB8000+160*0x04+82],'i'
- mov byte [abs 0xB8000+160*0x05+82],'o'
- mov byte [abs 0xB8000+160*0x06+82],'p'
- mov byte [abs 0xB8000+160*0x07+82],'a'
- mov byte [abs 0xB8000+160*0x08+82],'s'
- mov byte [abs 0xB8000+160*0x09+82],'d'
- mov byte [abs 0xB8000+160*0x0A+82],'f'
- mov byte [abs 0xB8000+160*0x0B+82],'g'
- mov byte [abs 0xB8000+160*0x0C+82],'h'
- mov byte [abs 0xB8000+160*0x0D+82],'j'
- mov byte [abs 0xB8000+160*0x0E+82],'k'
- mov byte [abs 0xB8000+160*0x0F+82],'l'
- mov byte [abs 0xB8000+160*0x10+82],'z'
- mov byte [abs 0xB8000+160*0x11+82],'x'
-funconf:
- lea rax,[crash]
- mov [functable+0x00],rax 
-mainloop:
+funconf: 
+ lea rax,[retfunc]
+ lea rdi,[functable]
+ mov ecx,0x20
+ confloop:
+ mov [rdi],rax
+ add rdi,8
+ loop confloop
+ lea rax,[pcifunc]
+ mov [functable+0x00],rax
+ lea rax,[diskfunc]
+ mov [functable+0x08],rax
+finconf:
+ mov byte [abs 0xB8000+160*0x18+00],'0'
+ mov byte [abs 0xB8000+160*0x18+02],'x'
+ mov byte [abs 0xB8000+160*0x18+04],'0'
+ mov byte [abs 0xB8000+160*0x18+06],'0'
+ call printchoices
  sti
+mainloop:
  lea rdi,[opttable]
  call printlines
  cmp byte [handled],1
  je nokey
- cmp byte [lastkey],0x0B
- je callfunc
  mov byte [handled],1
+ xor ebx,ebx
+ lea rax,[mainloop]
+ push rax
+ cmp byte [lastkey],0x10    ;q pressed
+ cmove rbx,[functable+0x00]
+ cmp byte [lastkey],0x11    ;w pressed
+ cmove rbx,[functable+0x08]
+ test rbx,rbx
+ jnz callfunc
+ retfunc:
+ pop rax
  nokey:
  hlt
  jmp mainloop
-callfunc:
- call [functable]
- jmp mainloop
+ callfunc:
+ jmp rbx
 
 mem:
  palloc:
@@ -414,67 +436,108 @@ mem:
  pmap:
  punmap:
  pfree:
-atapi:
- pichk:
-  ret
-atapio:
- ;I currently only have ATAPI hard drives to test with so I'm putting most of this off for later
- ;The piochk function isnt fully tested but it will send back the correct drive type in ax which is good enough for me
- piochk:
-  ;Inputs
-   ;al,  master(0xA0)/slave(0xB0)
-   ;dx,  port base
-   ;rdi, result block
-  ;Outputs
-   ;eax, result
-  call pioset  ;0x06->0x07
-  cmp al,0xFF  ;If al is 0xFF then the bus is not present
-  jz piochkerr
-  xor al,al
-  sub dx,2     ;0x07->0x05 LBAhi register
-  out dx,al
-  dec dx       ;0x05->0x04 LBAmid
-  out dx,al
-  dec dx       ;0x04->0x03 LBAlo
-  out dx,al
-  dec dx       ;0x03->0x02 Sectorcount
-  out dx,al
-  add dx,5     ;0x02->0x07 Status/command
-  mov al,0xEC  ;IDENTIFY
-  out dx,al
-  in al,dx
-  test al,al   ;If status is 0 then the device is not present
-  jz piochkerr
-  piopoll0:
-  in al,dx     ;Still the status port
-  test al,0x80 ;Wait for the BSY bit to clear
-  jnz piopoll0
-  sub dx,3     ;0x07->0x04 LBAmid
-  in al,dx
-  shl ax,8
-  inc dx       ;0x04->0x05 LBAhi
-  in al,dx
-  test ax,ax
-  jnz piochkerr
-  add dx,2     ;0x05->0x07 Status
-  piopoll1:
-  in al,dx
-  test al,0x09 ;Wait until DRQ or ERR sets
-  jz piopoll1
-  test al,1
-  jnz piochkerr
-  sub dx,7     ;0x07->0x00 Data
-  mov ecx,256
-  rep insw     ;Read the block
-  or eax,0x10000000
-  xor ax,ax
-  ret
-  piochkerr:
-  and eax,0xFFFF
-  ret
- piord:
- piowr:
- pioset:
+ata:
+ atapi:
+  pichk:
+   ;Inputs
+    ;al,  master(0xA0)/slave(0xB0)
+    ;dx,  port base
+    ;rdi, result block
+   ;Outputs
+    ;al, result. 0=success,1=err
+   call ataset  ;0x06->0x07
+   xor al,al
+   sub dx,2     ;0x07->0x05 LBAhi
+   out dx,al
+   dec dx       ;0x05->0x04 LBAmid
+   out dx,al
+   dec dx       ;0x04->0x03 LBAlo
+   out dx,al
+   dec dx       ;0x03->0x02 Sectorcount
+   out dx,al
+   add dx,5     ;0x02->0x07 Status/command
+   mov al,0xA1  ;IDENTIFY PACKET DEVICE
+   out dx,al
+   pipoll0:     ;Already verified device presence when calling piochk
+   in al,dx
+   test al,0x80 ;Wait for BSY to clear
+   jnz pipoll0
+   pipoll1:
+   in al,dx
+   test al,0x01 ;Check for error
+   jnz pichkerr
+   test al,0x08 ;Wait for DRQ to set
+   jz pipoll1
+   sub dx,7     ;0x07->0x00
+   push rcx
+   mov ecx,0x100
+   rep insw     ;Read 256 words
+   pop rcx
+   mov al,1
+   ret
+   pichkerr:
+   xor al,al
+   ret
+ atapio:
+  ;I currently only have ATAPI hard drives to test with so Im putting most of this off for later
+  ;The piochk function isnt fully tested but it will send back the correct drive type in ax which is good enough for me
+  piochk:
+   ;Inputs
+    ;al,  master(0xA0)/slave(0xB0)
+    ;dx,  port base
+    ;rdi, result block
+   ;Outputs
+    ;eax, result
+   call ataset  ;0x06->0x07
+   cmp al,0xFF  ;If al is 0xFF then the bus is not present
+   jz piochkerr
+   xor al,al
+   sub dx,2     ;0x07->0x05 LBAhi register
+   out dx,al
+   dec dx       ;0x05->0x04 LBAmid
+   out dx,al
+   dec dx       ;0x04->0x03 LBAlo
+   out dx,al
+   dec dx       ;0x03->0x02 Sectorcount
+   out dx,al
+   add dx,5     ;0x02->0x07 Status/command
+   mov al,0xEC  ;IDENTIFY DEVICE
+   out dx,al
+   in al,dx
+   test al,al   ;If status is 0 then the device is not present
+   jz piochkerr
+   piopoll0:
+   in al,dx     ;Still the status port
+   test al,0x80 ;Wait for the BSY bit to clear
+   jnz piopoll0
+   sub dx,3     ;0x07->0x04 LBAmid
+   in al,dx
+   shl ax,8
+   inc dx       ;0x04->0x05 LBAhi
+   in al,dx
+   test ax,ax
+   jnz piochkerr
+   add dx,2     ;0x05->0x07 Status
+   piopoll1:
+   in al,dx
+   test al,0x09 ;Wait until DRQ or ERR sets
+   jz piopoll1
+   test al,1
+   jnz piochkerr
+   sub dx,7     ;0x07->0x00 Data
+   push rcx
+   mov ecx,0x100
+   rep insw     ;Read 256 words
+   pop rcx
+   or eax,0x10000000
+   xor ax,ax
+   ret
+   piochkerr:
+   and eax,0xFFFF
+   ret
+  piord:
+  piowr:
+ ataset:
   ;al, master(0xA0)/slave(0xB0)
   ;dx, drive select port
   out dx,al
@@ -489,40 +552,145 @@ ints:
   call printat
   cli
   hlt
- int21:
+ int21: ;Keyboard
+  push rax
+  push rbx
+  push rdi
   in al,0x60           ;Read keyboard input
   mov [lastkey],al     ;Save
+  xor eax,eax          ;Temp code to print the keycode
+  lea rdi,[hexstr]
+  mov al,[lastkey]
+  and al,0x0F
+  add rdi,rax
+  mov bl,[rdi]
+  mov [abs 0xB8000+160*0x18+06],bl
+  sub rdi,rax
+  mov al,[lastkey]
+  shr al,4
+  add rdi,rax
+  mov bl,[rdi]
+  mov [abs 0xB8000+160*0x18+04],bl
   mov byte [handled],0 ;Clear handled flag
   mov eax,0xFEE000B0   ;Send EOI
   mov dword [eax],0
+  pop rdi
+  pop rbx
+  pop rax
   iretq
- int28:
+ int28: ;RTC
+  push rax
+  push rbx
+  mov rbx,[prntbuf]
   inc byte [abs 0xB8000+160*24+158]
+  mov rax,rsp
+  mov qword [prntbuf], 0xB8000+160*24+120
+  call printrax
   mov al,0x0C
   out 0x70,al
   in al,0x71
   mov eax,0xFEE000B0   ;Send EOI
   mov dword [eax],0
+  mov [prntbuf],rbx
+  pop rbx
+  pop rax
   iretq
+keyfuncs:
+ pcifunc:
+  call clrscr
+  lea rdi,[pciblk]
+  pcifuncloop:
+  mov rax,[rdi]
+  test rax,rax
+  jz waitret
+  call printeax
+  shr rax,32
+  add qword [prntbuf], 2
+  call printeax
+  add rdi,8
+  add qword [prntbuf],46
+  jmp pcifuncloop
+ diskfunc:
+  call clrscr
+  mov eax,[drives+0x00]
+  call printeax
+  add qword [prntbuf], 2
+  mov eax,[drives+0x04]
+  call printeax
+  add qword [prntbuf],126
+  mov eax,[drives+0x08]
+  call printeax
+  add qword [prntbuf],2
+  mov eax,[drives+0x0C]
+  call printeax
+  add qword [prntbuf],126
+  mov eax,[drives+0x10]
+  call printeax
+  add qword [prntbuf],2
+  mov eax,[drives+0x14]
+  call printeax
+  add qword [prntbuf],126
+  mov eax,[drives+0x18]
+  call printeax
+  add qword [prntbuf],2
+  mov eax,[drives+0x1C]
+  call printeax
+  jmp waitret
+ waitret:
+  hlt
+  test byte [handled],1
+  jnz waitret
+  mov byte [handled],0
+  cmp byte [lastkey],0x01 ;Esc
+  jne waitret
+  call clrscr
+  call printchoices
+  ret
 misc:
  printeax:
   push rax
   push rbx
   push rcx
   push rdx
-  mov edx,[prntbuf]
+  mov rdx,[prntbuf]
   mov ecx,8
-  printeax.loop:
-   lea rbx,[str.hex]
+  printeaxloop:
+   lea rbx,[hexstr]
    mov r8d,eax
    shr r8d,28
    add rbx,r8
    mov bl,[rbx]
-   mov [edx],bl
+   mov [rdx],bl
    add edx,2
    shl eax,4
-   loop printeax.loop
-  add dword [prntbuf],16
+   loop printeaxloop
+  add qword [prntbuf],16
+  pop rdx
+  pop rcx
+  pop rbx
+  pop rax
+  ret
+ printrax:
+  push rax
+  push rbx
+  push rcx
+  push rdx
+  mov rdx,[prntbuf]
+  push rdx
+  mov ecx,16
+  printraxloop:
+   lea rbx,[hexstr]
+   mov r8,rax
+   shr r8,60
+   add rbx,r8
+   mov bl,[rbx]
+   mov [edx],bl
+   add rdx,2
+   shl rax,4
+   loop printraxloop
+  add qword [prntbuf],32
+  pop rdx
+  mov [prntbuf],rdx
   pop rdx
   pop rcx
   pop rbx
@@ -581,8 +749,60 @@ misc:
    jmp plnextline
    plend:
   ret
- crash:
-  jmp 0
+ printchoices:
+  mov byte [abs 0xB8000+160*0x00+02],'^'
+  mov byte [abs 0xB8000+160*0x00+82],'V'
+  mov byte [abs 0xB8000+160*0x02+02],'q'
+  mov byte [abs 0xB8000+160*0x03+02],'w'
+  mov byte [abs 0xB8000+160*0x04+02],'e'
+  mov byte [abs 0xB8000+160*0x05+02],'r'
+  mov byte [abs 0xB8000+160*0x06+02],'t'
+  mov byte [abs 0xB8000+160*0x07+02],'y'
+  mov byte [abs 0xB8000+160*0x08+02],'u'
+  mov byte [abs 0xB8000+160*0x09+02],'i'
+  mov byte [abs 0xB8000+160*0x0A+02],'o'
+  mov byte [abs 0xB8000+160*0x0B+02],'p'
+  mov byte [abs 0xB8000+160*0x0C+02],'['
+  mov byte [abs 0xB8000+160*0x0D+02],']'
+  mov byte [abs 0xB8000+160*0x0E+02],'a'
+  mov byte [abs 0xB8000+160*0x0F+02],'s'
+  mov byte [abs 0xB8000+160*0x10+02],'d'
+  mov byte [abs 0xB8000+160*0x11+02],'f'
+  mov byte [abs 0xB8000+160*0x13+02],'^'
+  mov byte [abs 0xB8000+160*0x13+82],'V'
+  mov byte [abs 0xB8000+160*0x02+82],'g'
+  mov byte [abs 0xB8000+160*0x03+82],'h'
+  mov byte [abs 0xB8000+160*0x04+82],'j'
+  mov byte [abs 0xB8000+160*0x05+82],'k'
+  mov byte [abs 0xB8000+160*0x06+82],'l'
+  mov byte [abs 0xB8000+160*0x07+82],';'
+  mov byte [abs 0xB8000+160*0x08+82],"'"
+  mov byte [abs 0xB8000+160*0x09+82],'z'
+  mov byte [abs 0xB8000+160*0x0A+82],'x'
+  mov byte [abs 0xB8000+160*0x0B+82],'c'
+  mov byte [abs 0xB8000+160*0x0C+82],'v'
+  mov byte [abs 0xB8000+160*0x0D+82],'b'
+  mov byte [abs 0xB8000+160*0x0E+82],'n'
+  mov byte [abs 0xB8000+160*0x0F+82],'m'
+  mov byte [abs 0xB8000+160*0x10+82],','
+  mov byte [abs 0xB8000+160*0x11+82],'.'
+  ret
+ clrscr:
+  push rax
+  push rbx
+  push rcx
+  mov rax,0x0700070007000700 ;0x07 is gray on black
+  mov ebx,0xB8000            ;May have to fix hardcoded value later
+  mov ecx,20*24              ;Bytes per line / 8 * lines to clear
+  mov [prntbuf],rbx
+  clrscrloop:
+  mov [ebx],rax
+  add ebx,8
+  loop clrscrloop
+  pop rcx
+  pop rbx
+  pop rax
+  ret
 
 data:
  align 0x10,db 0
@@ -593,12 +813,14 @@ data:
  rsdt    dq 0
  xsdt    dq 0
  madt    dq 0
+ prntbuf dq 0xB8000 ;Managing of this value is getting rather awful
  drives  times 8 dd 0
- prntbuf dd 0xB8000
- str.hex db '0123456789ABCDEF'
+ driveio dw 0x1F6,0x176,0x1EE,0x16E
+ hexstr db '0123456789ABCDEF'
  pcilen  dd 0
  lastkey db 0
  handled db 1
+ errmsg db 'Everything has crashed!',0
  align 0x10,db 0
  idtr:
   dw idt.end-idt-1
@@ -635,11 +857,10 @@ data:
   dd 0           ;Reserved
   idt.end:
  opttable:
-  db 'Crash',0,3
- errmsg db 'Everything has crashed!',0
+  db 'PCI Info',0
+  db 'Drive Info',0,3
  functable:
-  dq 0
-  dq 0
+  times 0x20 dq 0
 %if $-$$ > 0x0F00
  %error "Exceeded current allocation"
  %endif
