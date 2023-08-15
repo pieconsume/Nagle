@@ -106,7 +106,7 @@ data:
  diskpack:
   db 0x10   ;Packet size
   db 0      ;0
-  dw 8      ;Sector count
+  dw 0x10   ;Sector count
   dw 0      ;Segment offset
   dw 0x4000 ;Segment (address >> 4)
   dd 0x1A   ;Sector skip low dword
@@ -134,7 +134,7 @@ data:
   db 0    ;0x04 Flags
   db 0    ;0x05 Memory map type
   dw 0    ;0x06 Memory map entries
-  ;dword 0 is page offset,dword 1 is size in sectors
+  ;dword 0 is page offset,dword 1 is size in pages
   dd 0x40 ;0x08 Kernel
   dd 2
   dd 0x03 ;0x10 PML4

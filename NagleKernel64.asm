@@ -2,8 +2,6 @@
  [BITS 64]
  [ORG 0]
  [DEFAULT REL]
- %define stack  $$+0x1000   ;Todo - allocate a block for the stack once the palloc function is implemented
- %define ipmm   $$+0x1000
  %define pml3im $$+0x2000   ;PML3 for identity mapping
  %define pml3hh $$+0x3000   ;PML3 for higher half kernel
  %define pml2   $$+0x4000
@@ -32,10 +30,10 @@ init:
  mov ebx,[rax+0x18]
  shl rbx,12
  mov [pmmphy],rbx       ;Physical address of the physical memory map
- lea rsp,[stack]        ;Set the stack
-memconf:
+ lea rsp,[tempstack]    ;Use a temporary stack location until we have allocations set up
+genpat:
  xor ecx,ecx
- test byte [rax+0x05],1 ;Get the memory map type from the flags
+ test byte [rsrvflg+0x05],1 ;Get the memory map type from the flags
  jnz genpat1
  genpat0:
   ;0xE820 Memory Map
@@ -54,9 +52,10 @@ memconf:
   mov rdi,[pmmphy]      ;Physical memory map in rdi
   lea rsi,[patblk]      ;Page allocation table in rsi
   xor ebp,ebp           ;Clear rbp for storing extra values
-  mov cx,[rax+0x06]     ;Get the entry count in cx
+  mov cx,[rsrvflg+0x06] ;Get the entry count in cx
   xor r8w,r8w           ;Use r8w to store the final entry count
   genpat0loop0:         ;Loop for generating available space
+   ;Note - could remove a lot of branching here, might make code cleaner
    cmp byte [rdi+0x10],1 ;Check if the entry is usuable memory
    jne gp0nxt
    mov rbx,[rdi]         ;Get the base address
@@ -75,7 +74,7 @@ memconf:
    gp0bal:
    test dx,0x0FFF        ;Same alignment check for the length
    jz gp0store
-   and dx,0xF000        ;Clear the alignment bits
+   and dx,0xF000         ;Clear the alignment bits
    jz gp0nxt             ;Again, if the length becomes zero ignore the entry
    gp0store:
    shr rbx,12            ;Store the values as page offsets, not byte offsets
@@ -90,17 +89,50 @@ memconf:
    gp0nxt:
    add rdi,24
    loop genpat0loop0
-  jmp genpatend
+  mov [patlen],r8w
+  mov rdi,[pmmphy]
+  mov cx,[rsrvflg+0x06]
   genpat0loop1:         ;Loop for removing space reserved by the system
-  loop genpat0loop1
+   cmp byte [rdi+0x10],1
+   je gp1nxt
+   mov rbx,[rdi]        ;Get the base
+   mov rdx,[rdi+0x08]   ;Get the offset
+   and bx,0xF000        ;Page align the base
+   test dx,0x0FFF       ;Check if the offset is page aligned
+   jz gp1rsrv
+   and dx,0xF000        ;If it isnt increment it to the next page
+   inc rdx
+   gp1rsrv:
+   shr rbx,12           ;Shift to page offsets rather than byte offsets
+   shr rdx,12
+   add rdx,rbx          ;Add the base to the offset and subtract one to get the final page
+   dec rdx
+   mov eax,edx          ;Store the offset in the upper bits of rax and the base in the lower bits
+   shl rax,32
+   or rax,rbx
+   call pallocrange     ;Allocate the reserved pages
+   gp1nxt:
+   add rdi,24
+   loop genpat0loop1
+  mov rdi,[rsrvptr]     ;Get the array of reserved spaces
+  mov ecx,[rdi]         ;Get the array size
+  add rdi,8             ;The first entry contains flags
   genpat0loop2:         ;Loop for removing space reserved by the rsrv struct
-  loop genpat0loop2
+   mov eax,[rdi+0x04]   ;Get the page count
+   add eax,[rdi+0x00]   ;Get the final page by adding the page base and subtracting one
+   dec eax
+   shl rax,32           ;Store the final page in the upper bits
+   mov ebx,[rdi]        ;Store the base page in the lower bits
+   or rax,rbx
+   call pallocrange     ;Allocate the reserved pages
+   add rdi,8
+   loop genpat0loop2
+  mov cx,1
   genpat0loop3:         ;Loop for removing overlapping spaces
   loop genpat0loop3
   jmp genpatend
  genpat1:
  genpatend:
- mov [patents],r8w
 genpmls:
  ;Todo - allocate memory blocks using palloc to avoid touching reserved memory
  genpml4:
@@ -139,7 +171,9 @@ genpmls:
   jmp rax
   endjmp:
 hhfinit:
- lea rsp,[stack] ;Reset the stack to be in the remapped kernel
+ ;call palloc
+ ;call pmap
+ ;mov rsp,[rax] ;Reset the stack to be in the remapped kernel
 getrsdt:
  mov eax,0x80000 ;Search the first KiB of the EBDA
  mov rbx,'RSD PTR '
@@ -435,7 +469,78 @@ mainloop:
 mem:
  palloc:
  pallocrange:
- pallocany:
+  ;Input
+   ;rax, offset:base
+  ;Output
+   ;al, result
+  push rbx
+  push rcx
+  push rdx
+  push rdi
+  push rsi
+  lea rdi,[patblk] ;Get the PAT block in rdi
+  mov esi,[patlen] ;Get the PAT block final index in rsi
+  shl esi,3
+  add rsi,rdi
+  mov cx,[patlen]  ;Get the PAT entry count in cx
+  mov rbx,rax      ;Get rfinal in ebx
+  shr rbx,32
+  pallocrloop:
+   ;eax,     rbase
+   ;ebx,     rfinal
+   ;[rdi],   ibase
+   ;[rdi+4], ifinal
+   cmp rax,[rdi]
+   je pallocrexact
+   cmp ebx,[rdi]   ;If rfinal < ibase or rbase > ifinal then the index should be skipped
+   jl pallocrnxt
+   cmp eax,[rdi+4]
+   jg pallocrnxt
+   cmp ebx,[rdi+4] ;If rfinal => ifinal or rbase <= ibase then the segment should be shrunk. Otherwise it should be split
+   jge pallocrshrinkh
+   cmp eax,[rdi]
+   jle pallocrshrinkl
+  pallocrsplit:
+   mov rdx,[rdi]   ;Copy the index into rdx
+   mov [rdi+4],eax ;Set ifinal to rbase then decrement
+   dec dword [rdi+4]
+   mov [rsi],rdx   ;Create a new entry at the end of the array and increment patlen
+   inc word [patlen]
+   mov [rsi],ebx   ;Set ibase to rfinal then increment
+   inc dword [rsi]
+   jmp pallocrend
+  pallocrshrinkh:
+   mov [rdi+4],eax ;Set ifinal to rbase then decrement
+   dec dword [rdi+4]
+   jmp pallocrnxt
+  pallocrshrinkl:
+   mov [rdi],ebx   ;Set ibase to rfinal then increment
+   inc dword [rdi]
+   jmp pallocrnxt
+  pallocrremove:
+   mov rdx,[rsi]   ;Move the final index into the removed index, then clear the final index
+   mov [rdi],rdx
+   mov qword [rsi],0
+   sub rsi,8       ;Decrement the final index pointer, PAT entry count, and loop count
+   dec cx
+   dec word [patlen]
+   jmp pallocrloop ;Since the current index has changed repeat the function on the new index
+  pallocrexact:
+   mov rdx,[rsi]   ;Move the final index into the removed index, then clear the final index
+   mov [rdi],rdx
+   mov qword [rsi],0
+   dec word [patlen]
+   jmp pallocrend
+  pallocrnxt:
+  add rdi,8
+  loop pallocrloop
+  pallocrend:
+  pop rsi
+  pop rdi
+  pop rdx
+  pop rcx
+  pop rbx
+  ret
  pfree:
  pfreerange:
  pmap:
@@ -663,7 +768,7 @@ keyfuncs:
  patfunc:
   call clrscr
   lea rdi,[patblk]
-  mov cx,[patents]
+  mov cx,[patlen]
   patfuncloop:
   mov eax,[rdi+0x00]
   call printeax
@@ -840,11 +945,6 @@ printing:
   pop rbx
   pop rax
   ret
-sorting:
- sort32:
-  ret
- sort64:
-  ret
 
 data:
  align 0x10,db 0
@@ -857,10 +957,10 @@ data:
  xsdt    dq 0
  madt    dq 0
  prntbuf dq 0xB8000 ;Managing of this value is getting rather awful
+ patlen  dd 0
  drives  times 8 dd 0
  driveio dw 0x1F6,0x176,0x1EE,0x16E
- patents dw 0
- hexstr db '0123456789ABCDEF'
+ hexstr  db '0123456789ABCDEF'
  pcilen  dd 0
  lastkey db 0
  handled db 1
@@ -907,6 +1007,8 @@ data:
   db 'Page allocation table',0,3
  functable:
   times 0x20 dq 0
-%if $-$$ > 0x0F00
+ align 0x10, db 0
+ tempstack times 16 dq 0
+%if $-$$ > 0x2000
  %error "Exceeded current allocation"
  %endif

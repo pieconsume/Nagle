@@ -284,4 +284,4 @@ files:    ;0x18-0x1D | 0x05-0x0A
  kern:  ;0x1A-0x1D | 0x07-0x0A
   incbin "Builds/NagleKernel64"
   kern.end:
-  times 0x1000-(kern.end-kern) db 0
+  times 0x2000-(kern.end-kern) db 0
